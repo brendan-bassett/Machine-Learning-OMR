@@ -75,51 +75,6 @@ LABELS = ['Accent', 'AltoCleff', 'BassClef', 'Breve', 'Flat', 'Naturals', 'Notes
 
 # FUNCTIONS ************************************************************************************************************
 
-def bound_image(img: ndarray):
-
-    # This method inverts each input image and scales them to the same size by adding black borders if need be.
-
-    # Invert the image for masking. Black <--> White
-    inv_img = cv.bitwise_not(img)
-
-    # If no scaling needs to be done, return the inverted image.
-    if img.shape == IMG_SHAPE:
-        return inv_img
-
-    # Ensure that we are scaling up in size, not down. If we try to scale down on accident this error will occur.
-    if img.shape[0] > IMG_SHAPE[0] or img.shape[1] > IMG_SHAPE[1]:
-        print("ERROR: Original image is larger than the desired image size. Cannot convert down in size.")
-        cv.imshow("ERROR: OG Image too large for conversion", img)
-        cv.waitKey(0)
-        return
-
-    # Resize the image so they are uniform by adding black borders around the original image.
-    delta_x = IMG_SHAPE[0] - inv_img.shape[0]
-    delta_y = IMG_SHAPE[1] - inv_img.shape[1]
-
-    # Split the extra pixels exactly between each border to ensure desired shape.
-    t_border = delta_y // 2
-    b_border = delta_y // 2
-    l_border = delta_x // 2
-    r_border = delta_x // 2
-
-    if (delta_x % 2) == 1:
-        l_border += 1
-    if (delta_y % 2) == 1:
-        t_border += 1
-
-    new_img = cv.copyMakeBorder(inv_img, t_border, b_border, l_border, r_border, cv.BORDER_CONSTANT, value=[0, 0, 0])
-
-    if new_img.shape[0] != IMG_SHAPE[0] or new_img.shape[1] != IMG_SHAPE[1]:
-        print("ERROR: The image did not resize to the new shape for some reason.  new_img.shape: ", new_img.shape)
-
-    # cv.imshow("Original Image", img)
-    # cv.waitKey(0)
-    # cv.imshow("Inverted, Resized Image", new_img)
-    # cv.waitKey(0)
-
-    return new_img
-
 
 def cnn1():
 
@@ -475,3 +430,50 @@ def main():
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     main()
+
+
+# This function is not currently necessary, but it may come in handy later.
+# def bound_image(img: ndarray):
+#
+#     # This method inverts each input image and scales them to the same size by adding black borders if need be.
+#
+#     # Invert the image for masking. Black <--> White
+#     inv_img = cv.bitwise_not(img)
+#
+#     # If no scaling needs to be done, return the inverted image.
+#     if img.shape == IMG_SHAPE:
+#         return inv_img
+#
+#     # Ensure that we are scaling up in size, not down. If we try to scale down on accident this error will occur.
+#     if img.shape[0] > IMG_SHAPE[0] or img.shape[1] > IMG_SHAPE[1]:
+#         print("ERROR: Original image is larger than the desired image size. Cannot convert down in size.")
+#         cv.imshow("ERROR: OG Image too large for conversion", img)
+#         cv.waitKey(0)
+#         return
+#
+#     # Resize the image so they are uniform by adding black borders around the original image.
+#     delta_x = IMG_SHAPE[0] - inv_img.shape[0]
+#     delta_y = IMG_SHAPE[1] - inv_img.shape[1]
+#
+#     # Split the extra pixels exactly between each border to ensure desired shape.
+#     t_border = delta_y // 2
+#     b_border = delta_y // 2
+#     l_border = delta_x // 2
+#     r_border = delta_x // 2
+#
+#     if (delta_x % 2) == 1:
+#         l_border += 1
+#     if (delta_y % 2) == 1:
+#         t_border += 1
+#
+#     new_img = cv.copyMakeBorder(inv_img, t_border, b_border, l_border, r_border, cv.BORDER_CONSTANT, value=[0, 0, 0])
+#
+#     if new_img.shape[0] != IMG_SHAPE[0] or new_img.shape[1] != IMG_SHAPE[1]:
+#         print("ERROR: The image did not resize to the new shape for some reason.  new_img.shape: ", new_img.shape)
+#
+#     # cv.imshow("Original Image", img)
+#     # cv.waitKey(0)
+#     # cv.imshow("Inverted, Resized Image", new_img)
+#     # cv.waitKey(0)
+#
+#     return new_img
