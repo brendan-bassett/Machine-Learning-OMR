@@ -35,7 +35,7 @@ project I take a dataset of common musical characters, already removed from the 
 on, and seek to categorize them.
 
 
-##Sources
+## Sources
 Most of this work, primarily the code, is my own. There are some sections loosely
 derived from class demos, but I have changed quite a lot to fit my own purposes. The bulk of the
 work that is not mine is the dataset, which is sourced from an academic paper, “Optical
@@ -53,10 +53,10 @@ hyperparameters of my convolution neural network had miniscule effect on the end
 the end I used three different machine learning models, and took a “vote” between the three to
 arrive at the final prediction.
 
-##Libraries Used
+## Libraries Used
 OpenCV, Numpy, Tensorflow Keras, SKLearn, and Matplotlib.
 
-##Machine Learning Algorithms
+## Machine Learning Algorithms
 I used primarily logistic regression and convolutional neural networks. Most OMR
 software of the 90s and 2000s were based on logistic regression, so I wanted to compare the
 performance of that with convolutional neural networks. It turns out that for this dataset, logistic
@@ -77,7 +77,7 @@ The logistic regression model did shockingly well, though not as good as the oth
 models. In the final voting process I noticed that if one model differed from the others, it was
 usually this one.
 
-##Voting Process
+## Voting Process
 The idea was to see if I could improve upon the already excellent results of cnn2. The voting process
 gives equal weight to each model (since the performance of each is so similar), and defaults to
 the the result from convolution neural network 2 if a three-way tie occurs. This only happened
