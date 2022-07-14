@@ -77,6 +77,13 @@ The logistic regression model did shockingly well, though not as good as the oth
 models. In the final voting process I noticed that if one model differed from the others, it was
 usually this one.
 
+## Visualization
+
+![CNN 1 Train-Test Loss & Accuracy](https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/output/cnn1_train_test_loss_accuracy.png)
+![CNN 2 Train-Test Loss & Accuracy](https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/output/cnn2_train_test_loss_accuracy.png)
+![Post-Voting Confusion Matrix](https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/output/final_results_confusion_matrix.png)
+![Logistic Regression Confusion Matrix](https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/output/log_reg_conf_matrix.png)
+
 ## Voting Process
 The idea was to see if I could improve upon the already excellent results of cnn2. The voting process
 gives equal weight to each model (since the performance of each is so similar), and defaults to
