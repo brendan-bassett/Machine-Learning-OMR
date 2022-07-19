@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "//Machine-Learning-OMR/ds2_schema.json",
+
+  "title": "Deep Scores V2 - Revised Schema",
+  "description": "",
+  "type": "object",
+  "required": ["annotation_sets", "annotations", "categories", "images", "info"],
+
+  "properties": {
+
+    "annotation_sets": {
+      "description": "Titles of annotation sets used",
+      "type": "array"
+    },
+
+    "annotations": {
+
+      "description": "Collection of all annotations.",
+      "type": "array",
+
+      "items": {
+        "description": "A single annotation",
+        "type": "object",
+        "required": ["id","a_bbox", "o_bbox", "cat_id", "area", "img_id", "comments"],
+        "properties": {
+
+          "id": {
+            "description": "ID",
+            "type": "string"
+          },
+          "a_bbox": {
+            "description": "The bounding box for the annotation??? Contains 4 floats",
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+              "type": "number"
+            }
+          },
+          "o_bbox": {
+            "description": "The outer bounding box for the annotation??? Contains 8 floats",
+            "type": "array",
+            "minItems": 8,
+            "maxItems": 8,
+            "items": {
+              "type": "number"
+            }
+          },
+          "cat_id": {
+            "description": "A collection of categories describing the annotation",
+            "type": "array",
+            "items": {
+              "type": ["string", "null"]
+            }
+          },
+          "area": {
+            "description": "Pixelwise area in the annotation",
+            "type": "number"
+          },
+          "img_id": {
+            "description": "ID of the image containing the annotation",
+            "type": "string"
+          },
+          "comments": {
+            "description": "Any additional comments about the annotation",
+            "type": "string"
+          }
+        }
+      }
+    },
+
+    "categories": {
+
+      "description": "Metadata on each category of annotation",
+      "type": "array",
+
+      "items": {
+
+        "description": "Metadata on a single category",
+        "type": "object",
+        "required": ["id", "name", "annotation_set", "color"],
+
+        "properties": {
+
+          "id": {
+            "description": "ID",
+            "type": "string"
+          },
+          "name": {
+            "description": "Category name",
+            "type": "string"
+          },
+          "annotation_set": {
+            "description": "Annotation set",
+            "type": "string"
+          },
+          "color": {
+            "description": "The color to display annotations of this category",
+            "type": "string"
+          }
+        }
+      }
+    },
+
+    "images": {
+
+      "description": "Collection of metadata on each of the source images and the annotations they contain",
+      "type": "array",
+
+      "items":{
+        "description": "Metadata on a single source image and its annotations",
+        "type": "object",
+
+        "properties": {
+          "ann_ids": {
+            "description": "IDs corresponding to every annotation on this source image",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "description": "n",
+            "type": "number"
+          },
+          "filename": {
+            "description": "filename.jpg",
+            "type": "string"
+          },
+          "width": {
+            "description": "The width of the image in pixels",
+            "type": "number"
+          },
+          "height": {
+            "description": "The height of the image in pixels",
+            "type": "number"
+          }
+        },
+
+        "required": ["ann_ids", "filename", "height", "id", "width"]
+      }
+    },
+
+    "info": {
+
+      "description": "Metadata on this dataset",
+      "type": "object",
+      "required": ["desc", "version", "year", "contributor", "date_created", "url"],
+
+      "properties": {
+
+        "desc": {
+          "description": "A description of the dataset",
+          "type": "string"
+        },
+        "version": {
+          "description": "Version number",
+          "type": "string"
+        },
+        "year": {
+          "description": "Year released",
+          "type": "number"
+        },
+        "contributor": {
+          "description": "Contributor",
+          "type": "string"
+        },
+        "date_created": {
+          "description": "YYYY/MM/DD",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL where the original, unedited dataset can be found",
+          "type": "string"
+        }
+      }
+    }
+  }
+
+}

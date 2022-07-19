@@ -1,0 +1,94 @@
+[33mcommit f3bc3cf311864e6f6fb9447946e73306d8481e55[m[33m ([m[1;36mHEAD -> [m[1;32mchange_datasets[m[33m)[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Mon Jul 18 22:24:26 2022 -0600
+
+    Revert "transform json into schema verifiable json"
+    
+    This reverts commit 8efa28da17446a63597a3219a3fa9b25cc8e89c2.
+
+[33mcommit 8efa28da17446a63597a3219a3fa9b25cc8e89c2[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Mon Jul 18 22:19:39 2022 -0600
+
+    transform json into schema verifiable json
+
+[33mcommit eb5e91337d18d60f4b00d9399e41847c639f2bd8[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Mon Jul 18 22:13:14 2022 -0600
+
+    transform source json data into schema-validatable json
+
+[33mcommit d1b7897aa30d28337acefab4ddef755afe6db3f9[m[33m ([m[1;31morigin/master[m[33m, [m[1;31morigin/change_datasets[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmaster[m[33m)[m
+Merge: 1960c5f f37cd7e
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Sun Jul 17 18:02:56 2022 -0600
+
+    Merge pull request #1 from brendan-bassett/new_readme
+    
+    New readme
+
+[33mcommit f37cd7e00345c42c8de7bde8622d75e6f638e3b0[m[33m ([m[1;31morigin/new_readme[m[33m, [m[1;32mnew_readme[m[33m)[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Thu Jul 14 16:50:55 2022 -0600
+
+    Update README.md
+    
+    Adding images
+
+[33mcommit ce8081accf89a49ced2f5afb37aaa2235cbf1d70[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Thu Jul 14 16:39:18 2022 -0600
+
+    Update README.md
+    
+    fixing headers
+
+[33mcommit 38c92357fa212a7ab1f1034c56bc4885c6b50d79[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Thu Jul 14 16:38:05 2022 -0600
+
+    Update README.md
+    
+    Adding content from final report
+
+[33mcommit f9bfad41c98e68c6886ae88e02b61dfe419215e5[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Thu Jul 14 16:24:50 2022 -0600
+
+    testing slight changes to single file
+
+[33mcommit 3c35989676c9a053ddc1713ea6982eca85fca711[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Thu Jul 14 16:17:25 2022 -0600
+
+    Create README.md
+
+[33mcommit dece119eaa42f37965b20ee359e4b79829cf201d[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Thu Jul 14 16:16:11 2022 -0600
+
+    Remove Jeckyll files
+
+[33mcommit b331846ed4c9bb683f54c8eaf6de78e1c351be01[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Thu Jul 14 15:56:27 2022 -0600
+
+    Remove .idea files from repository
+
+[33mcommit 15baa1d98361ddd0c541b6383507ee3feae67fd2[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Thu Jul 14 15:52:06 2022 -0600
+
+    Adding Jekyll files for GitHub Pages site
+
+[33mcommit 1960c5f471db1127e1043b38fa053558fc49a574[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Thu Jul 14 13:12:19 2022 -0600
+
+    Set theme jekyll-theme-time-machine
+
+[33mcommit 6f96e116bd415492b6bc41a34bddb1c3937558dd[m
+Author: Brendan Bassett <bbassett3914@gmail.com>
+Date:   Tue Jun 7 17:11:20 2022 -0600
+
+    Initial commit
