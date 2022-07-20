@@ -2,15 +2,15 @@
 @author: Brendan Bassett
 @date: 05/09/2022
 
-ASSESS AND LOAD DEEPSCOREV2 DATASETS FROM JSON
+ASSESS AND LOAD DEEPSCORESV2 DATASETS FROM JSON
 """
 
 import json
+import mysql.connector
 from os import path
 
 
 def transform(data, save_file_loc: str):
-
     # The "w" truncates, so it will create new file if one does not exist.
     with open(save_file_loc, 'w') as json_file:
         # Extract the info object which describes the dataset.
@@ -54,7 +54,7 @@ def transform(data, save_file_loc: str):
 
                 name = cat_read['name']
                 annotation_set = cat_read['annotation_set']
-                color = str(cat_read['color'])          # Could be an int or tuple. Convert to string for schema.
+                color = str(cat_read['color'])  # Could be an int or tuple. Convert to string for schema.
 
                 category = {
                     'id': cat_id,
@@ -115,23 +115,39 @@ def transform(data, save_file_loc: str):
 
         print("\n   number of annotations: ", len(annotations))
 
+
 # -------------- MAIN CODE -----------------------------------
 
-# Load the JSON data.
+# # Load the JSON data.
+#
+# DEEPSCORES_DENSE_TEST = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_test.json")
+# DEEPSCORES_DENSE_TRAIN = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_train.json")
+#
+# test_file = open(DEEPSCORES_DENSE_TEST)
+# train_file = open(DEEPSCORES_DENSE_TRAIN)
+#
+# test_data = json.load(test_file)
+# train_data = json.load(train_file)
+#
+# print("---------------------------------------------")
+# print("TEST\n")
+# transform(test_data, 'ds2_dense_test.json')
+#
+# print("---------------------------------------------")
+# print("TRAIN\n")
+# transform(train_data, 'ds2_dense_train.json')
 
-DEEPSCORES_DENSE_TEST = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_test.json")
-DEEPSCORES_DENSE_TRAIN = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_train.json")
+# Connect to local MySQL server.
 
-test_file = open(DEEPSCORES_DENSE_TEST)
-train_file = open(DEEPSCORES_DENSE_TRAIN)
+connection = mysql.connector.connect(user='root', password='MusicE74!',
+                                     host='localhost', db='ds2_dense_test')
 
-test_data = json.load(test_file)
-train_data = json.load(train_file)
+try:
+    cursor = connection.cursor()
+    print("MySQL Connection successful!")
 
-print("---------------------------------------------")
-print("TEST\n")
-transform(test_data, 'ds2_dense_test.json')
+    cursor.execute("CREATE TABLE annotations (id VARCHAR(255), )")
 
-print("---------------------------------------------")
-print("TRAIN\n")
-transform(train_data, 'ds2_dense_train.json')
+    print("MySQL Connection ended.")
+finally:
+    connection.close()
