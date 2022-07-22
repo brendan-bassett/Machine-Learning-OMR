@@ -204,7 +204,7 @@ def log_reg():
 def load_from_images():
     #   Get the path for the dataset from wherever the user has placed it on their machine.
     #       Assume project file structures are unchanged.
-    data_path = os.path.join(ROOT_PATH + '\\Dataset')
+    data_path = os.path.join(ROOT_PATH + '\\Rebelo_dataset')
 
     print("Data from: ", data_path)
 
@@ -220,7 +220,7 @@ def load_from_images():
         for image_name in image_list:
             img_path = os.path.join(data_path + '\\' + str(class_name) + '\\' + image_name)
             img = cv.imread(img_path)
-            img = bound_image(img)
+            # img = bound_image(img)
             data.append(img)
             labels.append(class_name)
 
