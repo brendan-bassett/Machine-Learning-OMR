@@ -2,8 +2,9 @@
 @author: Brendan Bassett
 @date: 07/20/2022
 
-Assess and load DeepScores V2 dataset from JSON to local MYSQL server.
+Assess and load DeepScores V2 dataset from JSON to a local MYSQL server.
 """
+
 
 import json
 import mysql.connector
@@ -11,6 +12,8 @@ from os import path
 
 
 def transform(data, save_file_loc: str):
+
+    print("\nTransforming source data from json to new, schema-verifiable json... \n")
 
     # The "w" truncates, so it will create new file if one does not exist.
     with open(save_file_loc, 'w') as json_file:
@@ -20,7 +23,7 @@ def transform(data, save_file_loc: str):
 
         # Extract the annotations object, which is a collection of every annotation in this dataset.
 
-        print("\nannotations: \n")
+        print("\nannotations... \n")
 
         ann_array = []
         root_dict['annotations'] = ann_array
@@ -54,7 +57,7 @@ def transform(data, save_file_loc: str):
         print("\n   number of annotations: ", len(annotations))
 
         # Extract the annotation_sets object which names each of the sets of annotations.
-        print("\nannotation_sets: \n")
+        print("\nannotation_sets... \n")
 
         ann_sets_array = []
         root_dict['annotation_sets'] = ann_sets_array
@@ -69,7 +72,7 @@ def transform(data, save_file_loc: str):
         # them into a new json file containing only an array of categories. There each category id will
         # be a name/value pair.
 
-        print("\ncategories: \n")
+        print("\ncategories... \n")
         categories_array = []
         root_dict["categories"] = categories_array
         categories = data['categories']
@@ -97,7 +100,7 @@ def transform(data, save_file_loc: str):
 
         # Extract the images array which contains data on each image that is annotated.
 
-        print("\nimages: \n")
+        print("\nimages... \n")
 
         images = data['images']
         root_dict['images'] = images
@@ -105,7 +108,7 @@ def transform(data, save_file_loc: str):
         print("\n   number of images: ", len(images))
 
         # Extract the info object which describes the dataset.
-        print("info: \n")
+        print("info... \n")
 
         info_read = data['info']
         for i in info_read:
@@ -125,9 +128,9 @@ def transform(data, save_file_loc: str):
         print("\nSource JSON transformed to new JSON file:" + save_file_loc + "\n")
 
 
-def populate_local_MySQL(data, connection):
-    try:
+def populate_local_mysql(data, connection):
 
+    try:
         cursor = connection.cursor()
 
         print("-----------------------------------------")
@@ -145,9 +148,9 @@ def populate_local_MySQL(data, connection):
             out_annotations.append(annotation)
             # print("category:", category)
 
-        ann_insert_query = "INSERT IGNORE INTO annotations (area, comments, id, img_id," \
-                                                            "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1," \
-                                                            "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1," \
+        ann_insert_query = "INSERT IGNORE INTO annotations (area, comments, id, img_id, " \
+                                                            "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
+                                                            "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
                                                             "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3) " \
                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         print("    ann_insert_query:", ann_insert_query)
@@ -186,8 +189,7 @@ def populate_local_MySQL(data, connection):
         #                    "VALUES (\"%s\", \"%s\", %d, \"%s\")" \
         #                    % (annotation_set, color, id, name)
 
-        cat_insert_query = "INSERT IGNORE INTO categories (annotation_set, color, id, `name`) " \
-                           "VALUES (%s, %s, %s, %s)"
+        cat_insert_query = "INSERT IGNORE INTO categories (annotation_set, color, id, `name`) VALUES (%s, %s, %s, %s)"
         print("    cat_insert_query:", cat_insert_query)
 
         cursor.executemany(cat_insert_query, out_categories)
@@ -203,10 +205,10 @@ def populate_local_MySQL(data, connection):
         for img in src_images:
             image = (img['filename'], img['height'], img['id'], img['width'])
             out_images.append(image)
-            # print("image:", images)
 
-        images_insert_query = "INSERT IGNORE INTO images (id, filename, height, width) " \
-                                    "VALUES (%s, %s, %s, %s)"
+        # The source json uses filename instead of file_name as indicated on Deep Scores V2's schema.
+        # We are changing it here to match their schema.
+        images_insert_query = "INSERT IGNORE INTO images (file_name, height, id, width) VALUES (%s, %s, %s, %s)"
         print("    images_insert_query:", images_insert_query)
 
         cursor.executemany(images_insert_query, out_images)
@@ -214,16 +216,18 @@ def populate_local_MySQL(data, connection):
 
         print("    uploading images.ann_id s to SQL server...")
 
+        # This for loop avoids a memory exceeded error. Instead of committing every single row for every image as
+        # a single package, commit all the corresponding rows for a single image.
         for img in src_images:
-            src_img_ann_ids = img['ann_ids']
-            out_img_ann_ids = []
+            src_img_annotations = img['ann_ids']
+            out_img_annotations = []
 
-            for ann_id in src_img_ann_ids:
-                out_img_ann_ids.append((img['id'], ann_id))
+            for ann_id in src_img_annotations:
+                out_img_annotations.append((img['id'], ann_id))
 
-            img_ann_insert_query = "INSERT IGNORE INTO images_ann_ids (image_id, ann_id) VALUES (%s, %s)"
-            # print("    out_img_ann_ids:", out_img_ann_ids)
-            cursor.executemany(img_ann_insert_query, out_img_ann_ids)
+            img_ann_insert_query = "INSERT IGNORE INTO images_annotations (image_id, ann_id) VALUES (%s, %s)"
+            # print("    out_img_annotations:", out_img_annotations)
+            cursor.executemany(img_ann_insert_query, out_img_annotations)
 
             connection.commit()
 
@@ -247,14 +251,17 @@ def populate_local_MySQL(data, connection):
         connection.close()
 
 
-# # -------------- MAIN CODE -------------------------------------------------------------------------------------------
-#
-# # Load the JSON data and transform them to new JSON files with better structure for Schema validation.
-#
-# print("Loading source data...")
-#
+# ============== MAIN CODE =========================================================================================
+
+print("Loading source data...")
+
 # DEEPSCORES_DENSE_TEST = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_test.json")
 # DEEPSCORES_DENSE_TRAIN = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_train.json")
+
+DS2_DENSE_TEST_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_test.json")
+DS2_DENSE_TRAIN_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_train.json")
+
+# # Load the JSON data and transform them to new JSON files with better structure for Schema validation.
 #
 # test_file = open(DEEPSCORES_DENSE_TEST)
 # train_file = open(DEEPSCORES_DENSE_TRAIN)
@@ -264,32 +271,34 @@ def populate_local_MySQL(data, connection):
 #
 # print("---------------------------------------------")
 # print("TEST\n")
-# transform(test_data, 'ds2_dense_test.json')
+# transform(test_data, DS2_DENSE_TEST_TRANS)
 #
 # print("---------------------------------------------")
 # print("TRAIN\n")
-# transform(train_data, 'ds2_dense_train.json')
-#
-# # --------------------------------------------------------------------------------------------------------------------
-#
-# # Load revised JSON data.
-#
-# test_file = open('ds2_dense_test.json')
-# test_data = json.load(test_file)
-#
-# train_file = open('ds2_dense_train.json')
-# train_data = json.load(train_file)
-#
-# # Connect to local MySQL server.
-#
-# print("\n\n=======TEST DB=================================================================")
-# print("initializing connection...")
-# test_connection = mysql.connector.connect(user='root', password='MusicE74!',
-#                                      host='localhost', db='ds2_dense_test')
-# populate_local_MySQL(test_data, test_connection)
-#
-# print("\n\n=======TRAIN DB=================================================================")
-# print("initializing connection...")
-# train_connection = mysql.connector.connect(user='root', password='MusicE74!',
-#                                      host='localhost', db='ds2_dense_train')
-# populate_local_MySQL(train_data, train_connection)
+# transform(train_data, DS2_DENSE_TRAIN_TRANS)
+
+# --------------------------------------------------------------------------------------------------------------------
+
+# Load the revised JSON data and populate new local SQL server with it.
+
+# Connect to local MySQL server.
+
+print("\n\n--------- TEST DB ------------------------------------------------------------")
+
+print("\nloading...    ", DS2_DENSE_TEST_TRANS)
+test_file = open(DS2_DENSE_TEST_TRANS)
+test_data = json.load(test_file)
+
+print("initializing connection...")
+test_connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost', db='ds2_dense')
+populate_local_mysql(test_data, test_connection)
+
+print("\n\n--------- TRAIN DB ------------------------------------------------------------")
+
+print("\nloading...    ", DS2_DENSE_TRAIN_TRANS)
+train_file = open(DS2_DENSE_TRAIN_TRANS)
+train_data = json.load(train_file)
+
+print("initializing connection...")
+train_connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost', db='ds2_dense')
+populate_local_mysql(train_data, train_connection)
