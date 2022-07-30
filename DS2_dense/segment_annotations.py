@@ -20,18 +20,18 @@ def get_annotations_from_image(connection):
 
     print("all_ann_img_ids:\n", all_ann_img_ids)
 
-    ann_ids_message = "SELECT id FROM annotations WHERE img_id = %s" % "17"
+    ann_ids_message = "SELECT id FROM annotations WHERE img_id = %s" % "38"
     cursor.execute(ann_ids_message)
     connection.commit()
-    ann_ids = cursor.fetchall()
-    print("ann_ids message:", ann_ids_message, "\n\n      ann_ids:", ann_ids)
+    img_ann = cursor.fetchall()
+    print("ann_ids message:", ann_ids_message, "\n      img_ann:", img_ann)
 
-    for ann_id in ann_ids:
-        annotation_message = "SELECT * FROM annotations WHERE id = %s" % ann_id[0]
+    for ann in img_ann:
+        annotation_message = "SELECT * FROM annotations WHERE id = %s" % ann[0]
         cursor.execute(annotation_message)
         connection.commit()
         annotation = cursor.fetchall()
-        print("    annotation:", annotation, "      annotation_message:", annotation_message)
+        print("annotation:", annotation, "\n   annotation_message:", annotation_message)
 
 
 # ============== MAIN CODE =========================================================================================

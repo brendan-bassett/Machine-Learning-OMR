@@ -225,7 +225,7 @@ def populate_local_mysql(data, connection):
             for ann_id in src_img_annotations:
                 out_img_annotations.append((img['id'], ann_id))
 
-            img_ann_insert_query = "INSERT IGNORE INTO images_annotations (image_id, ann_id) VALUES (%s, %s)"
+            img_ann_insert_query = "INSERT IGNORE INTO images_annotations (img_id, ann_id) VALUES (%s, %s)"
             # print("    out_img_annotations:", out_img_annotations)
             cursor.executemany(img_ann_insert_query, out_img_annotations)
 
@@ -255,11 +255,15 @@ def populate_local_mysql(data, connection):
 
 print("Loading source data...")
 
-# DEEPSCORES_DENSE_TEST = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_test.json")
-# DEEPSCORES_DENSE_TRAIN = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_train.json")
+DEEPSCORES_DENSE_TEST = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_test.json")
+DEEPSCORES_DENSE_TRAIN = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_train.json")
 
 DS2_DENSE_TEST_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_test.json")
 DS2_DENSE_TRAIN_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_train.json")
+
+SQL_TESTTRAIN = 'ds2_dense'
+SQL_TEST = 'ds2_dense_test'
+SQL_TRAIN = 'ds2_dense_train'
 
 # # Load the JSON data and transform them to new JSON files with better structure for Schema validation.
 #
@@ -290,7 +294,7 @@ test_file = open(DS2_DENSE_TEST_TRANS)
 test_data = json.load(test_file)
 
 print("initializing connection...")
-test_connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost', db='ds2_dense')
+test_connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost', db=SQL_TEST)
 populate_local_mysql(test_data, test_connection)
 
 print("\n\n--------- TRAIN DB ------------------------------------------------------------")
@@ -300,5 +304,5 @@ train_file = open(DS2_DENSE_TRAIN_TRANS)
 train_data = json.load(train_file)
 
 print("initializing connection...")
-train_connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost', db='ds2_dense')
+train_connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost', db=SQL_TRAIN)
 populate_local_mysql(train_data, train_connection)
