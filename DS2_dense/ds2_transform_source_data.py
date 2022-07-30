@@ -5,13 +5,29 @@
 Assess and load DeepScores V2 dataset from JSON to a local MYSQL server.
 """
 
-
 import json
 import mysql.connector
 from os import path
 
+# ============== CONSTANTS =========================================================================================
 
-def transform(data, save_file_loc: str):
+DS2_DENSE_TEST = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_test.json")
+DS2_DENSE_TRAIN = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_train.json")
+
+JSON_DENSE_TEST_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_test.json")
+JSON_DENSE_TRAIN_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_train.json")
+
+SQL_DENSE = 'ds2_dense'
+SQL_DENSE_TEST = 'ds2_dense_test'
+SQL_DENSE_TRAIN = 'ds2_dense_train'
+
+
+# ============== FUNCTIONS =========================================================================================
+
+def transform(source_file: str, save_file_loc: str):
+    print("Loading source data...")
+    file = open(source_file)
+    data = json.load(file)
 
     print("\nTransforming source data from json to new, schema-verifiable json... \n")
 
@@ -128,10 +144,16 @@ def transform(data, save_file_loc: str):
         print("\nSource JSON transformed to new JSON file:" + save_file_loc + "\n")
 
 
-def populate_local_mysql(data, connection):
+def populate_local_mysql(source_file: str, database: str = SQL_DENSE):
+    print("\nloading...    ", source_file)
+    file = open(source_file)
+    data = json.load(file)
 
     try:
+        connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost', db=database)
         cursor = connection.cursor()
+
+        # Read every annotation from JSON source files and insert the data into the new MySQL database.
 
         print("-----------------------------------------")
         print("annotations:\n")
@@ -149,15 +171,17 @@ def populate_local_mysql(data, connection):
             # print("category:", category)
 
         ann_insert_query = "INSERT IGNORE INTO annotations (area, comments, id, img_id, " \
-                                                            "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
-                                                            "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
-                                                            "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3) " \
+                           "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
+                           "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
+                           "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3) " \
                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         print("    ann_insert_query:", ann_insert_query)
 
         cursor.executemany(ann_insert_query, out_annotations)
         connection.commit()
 
+        # Every annotation has an array of categories. Fill a table relating each annotation to its categories.
+        # Fill new MySQL database with data from JSON source.
         print("    uploading annotation.cat_id s to SQL server...")
 
         ann_categories = []
@@ -172,6 +196,8 @@ def populate_local_mysql(data, connection):
         cursor.executemany(ann_cat_insert_query, ann_categories)
         connection.commit()
 
+        # Each annotation category has its own descriptions and metadata.
+        # Fill new MySQL database with annotation category data from JSON source.
         print("-----------------------------------------")
         print("categories:\n")
         print("    uploading categories to SQL server...")
@@ -184,7 +210,6 @@ def populate_local_mysql(data, connection):
             out_categories.append(category)
             # print("category:", category)
 
-
         # cat_insert_query = "INSERT INTO categories (annotation_set, color, id, `name`) " \
         #                    "VALUES (\"%s\", \"%s\", %d, \"%s\")" \
         #                    % (annotation_set, color, id, name)
@@ -195,6 +220,8 @@ def populate_local_mysql(data, connection):
         cursor.executemany(cat_insert_query, out_categories)
         connection.commit()
 
+        # Each image has corresponding metadata.
+        # Fill new MySQL database with the metadata from JSON source.
         print("-----------------------------------------")
         print("images:\n")
         print("    uploading images to SQL server...")
@@ -214,7 +241,9 @@ def populate_local_mysql(data, connection):
         cursor.executemany(images_insert_query, out_images)
         connection.commit()
 
-        print("    uploading images.ann_id s to SQL server...")
+        # Each image has a list of annotations on it. Fill a table relating each image to its annotations.
+        # Fill new MySQL database with the data from JSON source.
+        print("    uploading images annotations to SQL server...")
 
         # This for loop avoids a memory exceeded error. Instead of committing every single row for every image as
         # a single package, commit all the corresponding rows for a single image.
@@ -231,6 +260,8 @@ def populate_local_mysql(data, connection):
 
             connection.commit()
 
+        # Each database has its own 'info' metadata.
+        # Fill new MySQL database with the metadatadata from JSON source.
         print("-----------------------------------------")
         print("info:\n")
         print("    uploading info to SQL server...")
@@ -238,9 +269,9 @@ def populate_local_mysql(data, connection):
         src_info = data['info']
 
         info_insert_query = "INSERT IGNORE INTO info (contributor, `desc`, date_created, version, `year`) " \
-                                    "VALUES (\"%s\", \"%s\", %s, \"%s\", \"%s\")" \
-                                    % (src_info['desc'], src_info['version'], src_info['year'],
-                                       src_info['contributor'], src_info['date_created'])
+                            "VALUES (\"%s\", \"%s\", %s, \"%s\", \"%s\")" \
+                            % (src_info['desc'], src_info['version'], src_info['year'],
+                               src_info['contributor'], src_info['date_created'])
         print("info_insert_query:", info_insert_query)
 
         cursor.execute(info_insert_query)
@@ -253,33 +284,15 @@ def populate_local_mysql(data, connection):
 
 # ============== MAIN CODE =========================================================================================
 
-print("Loading source data...")
-
-DEEPSCORES_DENSE_TEST = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_test.json")
-DEEPSCORES_DENSE_TRAIN = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_train.json")
-
-DS2_DENSE_TEST_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_test.json")
-DS2_DENSE_TRAIN_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_train.json")
-
-SQL_TESTTRAIN = 'ds2_dense'
-SQL_TEST = 'ds2_dense_test'
-SQL_TRAIN = 'ds2_dense_train'
-
 # # Load the JSON data and transform them to new JSON files with better structure for Schema validation.
-#
-# test_file = open(DEEPSCORES_DENSE_TEST)
-# train_file = open(DEEPSCORES_DENSE_TRAIN)
-#
-# test_data = json.load(test_file)
-# train_data = json.load(train_file)
 #
 # print("---------------------------------------------")
 # print("TEST\n")
-# transform(test_data, DS2_DENSE_TEST_TRANS)
+# transform(DS2_DENSE_TEST, JSON_DENSE_TEST_TRANS)
 #
 # print("---------------------------------------------")
 # print("TRAIN\n")
-# transform(train_data, DS2_DENSE_TRAIN_TRANS)
+# transform(DS2_DENSE_TRAIN, JSON_DENSE_TRAIN_TRANS)
 
 # --------------------------------------------------------------------------------------------------------------------
 
@@ -289,20 +302,10 @@ SQL_TRAIN = 'ds2_dense_train'
 
 print("\n\n--------- TEST DB ------------------------------------------------------------")
 
-print("\nloading...    ", DS2_DENSE_TEST_TRANS)
-test_file = open(DS2_DENSE_TEST_TRANS)
-test_data = json.load(test_file)
-
 print("initializing connection...")
-test_connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost', db=SQL_TEST)
-populate_local_mysql(test_data, test_connection)
+populate_local_mysql(JSON_DENSE_TEST_TRANS, SQL_DENSE_TEST)
 
 print("\n\n--------- TRAIN DB ------------------------------------------------------------")
 
-print("\nloading...    ", DS2_DENSE_TRAIN_TRANS)
-train_file = open(DS2_DENSE_TRAIN_TRANS)
-train_data = json.load(train_file)
-
 print("initializing connection...")
-train_connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost', db=SQL_TRAIN)
-populate_local_mysql(train_data, train_connection)
+populate_local_mysql(JSON_DENSE_TRAIN_TRANS, SQL_DENSE_TRAIN)

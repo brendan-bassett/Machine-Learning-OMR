@@ -42,7 +42,6 @@ import numpy as np
 import os
 import scikitplot as skplt
 import tensorflow
-import tensorflow.keras.utils as keras_utils
 from sklearn import linear_model
 from sklearn import metrics
 from numpy.core.records import ndarray
@@ -373,38 +372,38 @@ def main():
 
     print("\n---- CNN PREPROCESSING ----\n")
 
-    # data, labels = load_from_images()
-    # train_x, train_y, test_x, test_y, val_x, val_y = test_train_val_split(data, labels, 60., 30., 10.)
-    #
-    # # Invert binary images for masking. White <--> Black
-    # train_x = np.invert(train_x)
-    # test_x = np.invert(test_x)
-    # val_x = np.invert(val_x)
-    #
-    # # Flatten the data.
-    # train_x = train_x.reshape(train_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
-    # test_x = test_x.reshape(test_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
-    # val_x = val_x.reshape(val_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
-    #
-    # # Convert labels to vectors.
-    # train_y = keras_utils.to_categorical(train_y, num_classes=NUM_CLASSES)
-    # test_y = keras_utils.to_categorical(test_y, num_classes=NUM_CLASSES)
-    # val_y = keras_utils.to_categorical(val_y, num_classes=NUM_CLASSES)
-    #
-    # # SAVE the preprocessed CNN data to a file. This way we can ensure train, test, val datasets are equivalent
-    # # and we can skip preprocessing when testing the neural networks.
-    # save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, True)
-    #
-    # print("\n---- LOG REG PREPROCESSING ----\n")
-    # data = data.reshape((data.shape[0], IMG_SHAPE[0] * IMG_SHAPE[1] * 3))
-    # train_x, train_y, test_x, test_y, val_x, val_y = test_train_val_split(data, labels, 60., 30., 10.)
-    #
-    # # Invert binary images for masking. White <--> Black
-    # train_x = np.invert(train_x)
-    # test_x = np.invert(test_x)
-    # val_x = np.invert(val_x)
-    #
-    # save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, False)
+    data, labels = load_from_images()
+    train_x, train_y, test_x, test_y, val_x, val_y = test_train_val_split(data, labels, 60., 30., 10.)
+
+    # Invert binary images for masking. White <--> Black
+    train_x = np.invert(train_x)
+    test_x = np.invert(test_x)
+    val_x = np.invert(val_x)
+
+    # Flatten the data.
+    train_x = train_x.reshape(train_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
+    test_x = test_x.reshape(test_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
+    val_x = val_x.reshape(val_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
+
+    # Convert labels to vectors.
+    train_y = keras_utils.to_categorical(train_y, num_classes=NUM_CLASSES)
+    test_y = keras_utils.to_categorical(test_y, num_classes=NUM_CLASSES)
+    val_y = keras_utils.to_categorical(val_y, num_classes=NUM_CLASSES)
+
+    # SAVE the preprocessed CNN data to a file. This way we can ensure train, test, val datasets are equivalent
+    # and we can skip preprocessing when testing the neural networks.
+    save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, True)
+
+    print("\n---- LOG REG PREPROCESSING ----\n")
+    data = data.reshape((data.shape[0], IMG_SHAPE[0] * IMG_SHAPE[1] * 3))
+    train_x, train_y, test_x, test_y, val_x, val_y = test_train_val_split(data, labels, 60., 30., 10.)
+
+    # Invert binary images for masking. White <--> Black
+    train_x = np.invert(train_x)
+    test_x = np.invert(test_x)
+    val_x = np.invert(val_x)
+
+    save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, False)
 
     print("\n---- MODELS ----\n")
 
