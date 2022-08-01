@@ -486,11 +486,14 @@ def vote(test_x, test_y, cnn1_pred_y, cnn2_pred_y, log_reg_pred_y):
 
 # ============== MAIN CODE =========================================================================================
 
+logging.info("=====  SET UP LOGGER  =====")
+
 log_path = os.path.join(ROOT_PATH + '/logs/categorize_annotations.log')
 if not os.path.exists(log_path):
     with open(log_path, 'w+') as l:
         pass
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s :: %(message)s")
 logger = logging.getLogger()
 fh = logging.FileHandler(log_path)
 fh.setLevel(logging.INFO)
