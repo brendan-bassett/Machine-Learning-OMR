@@ -14,8 +14,8 @@ from os import path
 DS2_DENSE_TEST = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_test.json")
 DS2_DENSE_TRAIN = path.join("F://OMR_Datasets/DeepScoresV2_dense/deepscores_train.json")
 
-JSON_DENSE_TEST_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_test.json")
-JSON_DENSE_TRAIN_TRANS = path.join("F://OMR_Datasets/DS2_Transformed/ds2_dense_train.json")
+JSON_DENSE_TEST_TRANS = path.join("F://OMR_Datasets/ds2_Transformed/ds2_dense_test.json")
+JSON_DENSE_TRAIN_TRANS = path.join("F://OMR_Datasets/ds2_Transformed/ds2_dense_train.json")
 
 SQL_DENSE = 'ds2_dense'
 SQL_DENSE_TEST = 'ds2_dense_test'
