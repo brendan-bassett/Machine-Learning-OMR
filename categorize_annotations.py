@@ -33,15 +33,17 @@ Publication:    “Optical recognition of music symbols: A comparative study”
                 DOI: 10.1007/s10032-009-0100-1
 """
 
-
 # SETUP ****************************************************************************************************************
+import math
 
 import cv2 as cv
 import matplotlib.pyplot as plt
+import mysql.connector
 import numpy as np
 import os
 import scikitplot as skplt
 import tensorflow
+import keras.utils as keras_utils
 from sklearn import linear_model
 from sklearn import metrics
 from numpy.core.records import ndarray
@@ -52,12 +54,17 @@ from keras.layers import Dense, Flatten
 from keras.layers import Conv2D, MaxPooling2D
 from keras.models import Sequential
 
-
-# CONSTANTS ************************************************************************************************************
+# ============== CONSTANTS =========================================================================================
 
 ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
+ANN_IMG_PATH = os.path.join("F://OMR_Datasets/DS2_Transformed/annotations/")
 
-IMG_SHAPE = (20, 20, 3)
+SQL_DENSE = 'ds2_dense'
+SQL_DENSE_TEST = 'ds2_dense_test'
+SQL_DENSE_TRAIN = 'ds2_dense_train'
+
+ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or 'muscima++'
+
 CNN1_EPOCHS = 4
 CNN2_EPOCHS = 5
 
@@ -67,16 +74,119 @@ VALIDATION_SIZE = 0.1
 
 LOG_REG_MAX_ITER = 2000
 
-NUM_CLASSES = 15
-LABELS = ['Accent', 'AltoCleff', 'BassClef', 'Breve', 'Flat', 'Naturals', 'Notes', 'NotesFlags', 'NotesOpen',
-          'Rests1', 'Rests2', 'Sharps', 'TimeSignatureL', 'TimeSignatureN', 'TrebleClef']
+
+# ============== VARIABLES =========================================================================================
 
 
-# FUNCTIONS ************************************************************************************************************
+# ============== FUNCTIONS =========================================================================================
+
+# Convert all the pixelwise annotations for a database into numpy data arrays and labels.
+def convert_sql_to_numpy(sql_src: str):
+    # Clear the instance numpy datasets in case they already have something in them.
+    categories = {}
+    ann_meta = np.array([])
+    ann_imgs = np.array([])
+    ann_ids = np.array([])  # The annotation ids in the order that they appear in our numpy dataset.
+    ann_cat_ids = np.array([])  # Y-values. The correct category for each annotation.
+
+    print("\n\n***  Initializing MySQL %s DB connection...  ***\n" % sql_src)
+
+    try:
+        connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost',
+                                             db=sql_src, buffered=True)
+        cursor = connection.cursor()
+
+        # Load the list of possible categories for the chosen annotation set.
+        print("\nLoading categories...")
+
+        message = "SELECT id, `name` FROM categories WHERE annotation_set = \'%s\'" % ANNOTATION_SET
+        cursor.execute(message)
+        connection.commit()
+        fetch = cursor.fetchall()
+
+        for row in fetch:
+            categories[row[0]] = row[1]
+
+        labels = np.array(list(categories.keys()))
+
+        # Load the appropriate category for each annotation.
+        print("\nLoading annotation_categories...")
+
+        message = "SELECT ann_id, cat_id FROM annotations_categories INNER JOIN categories cat " \
+                  "ON (cat.id = cat_id AND cat.annotation_set=\'%s\')" % ANNOTATION_SET
+        cursor.execute(message)
+        connection.commit()
+        fetch = cursor.fetchall()
+
+        # Convert to dict for hashing during merge with annotation data.
+        ann_cats = {}
+        for row in fetch:
+            ann_cats[row[0]] = row[1]  # ann_cat.ann_id (key), ann_cat.cat_id (value)
+
+        # Obtain a list of every source image referred to by this database.into
+        print("\nLoading images list...")
+        message = "SELECT id FROM images"
+        cursor.execute(message)
+        connection.commit()
+        fetch = cursor.fetchall()
+
+        img_ids = []
+        for row in fetch:
+            img_ids.append(row[0])
+        print("\n   img_ids:", img_ids)
+
+        # Load the annotation data from the SQL database.
+        # Load the pixelwise annotation data from jpg files.
+        for img_id in img_ids:
+            print("\nLoading annotations from image", img_id)
+
+            message = "SELECT file_name FROM images WHERE id = \'%s\'" % img_id
+            cursor.execute(message)
+            connection.commit()
+            file_name = cursor.fetchall()[0][0]  # [0][0] Otherwise returns a one-entry array with a one-entry tuple.
+
+            # Get the annotation data most useful for our model. Only get the annotations for a single image at a time.
+            # Add the annotation's category which corresponds to the annotation set being used in the model.
+            message = "SELECT ann.id, ann_cat.cat_id, " \
+                      "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
+                      "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
+                      "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3 FROM annotations ann " \
+                      "INNER JOIN annotations_categories ann_cat INNER JOIN categories cat ON (ann.img_id=\'%s\' " \
+                      "AND ann.id=ann_cat.ann_id AND ann_cat.cat_id=cat.id AND cat.annotation_set=\'%s\')" \
+                      % (img_id, ANNOTATION_SET)
+            cursor.execute(message)
+            connection.commit()
+            fetch = cursor.fetchall()
+
+            # Load & process the data for every annotation on this image.
+            for row in fetch:
+
+                id, cat_id, meta, img = extract_single_annotation(row)
+
+                if img is None:     # The image file may have failed to load.
+                    continue
+
+                ann_ids = np.append(ann_ids, id)
+                ann_cat_ids = np.append(ann_cat_ids, cat_id)
+                ann_meta = np.append(ann_meta, meta)
+                ann_imgs = np.append(ann_imgs, img)
+
+        print("ann_imgs:", ann_imgs)
+        print("\nData size: {:.1f}MB".format(ann_imgs.nbytes / (1024 * 1000.0)))
+
+        # # Flatten the image data.
+        # ann_imgs = ann_imgs.reshape(ann_imgs.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
+        # val_x = val_x.reshape(val_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
+
+    finally:
+        print("\n\n***  MySQL Connection closed.  ***\n\n")
+        connection.close()
+        cv.destroyAllWindows()
+
+    return labels, ann_ids, ann_cat_ids, ann_meta, ann_imgs
 
 
-def cnn1():
-
+def cnn1(categories):
     print("\n-----------------------------------------------")
     print("-------  Convolution Neural Network 1  ----------")
     print("-----------------------------------------------\n")
@@ -93,7 +203,7 @@ def cnn1():
     model.add(MaxPooling2D(pool_size=(2, 2)))
     model.add(Flatten())
     model.add(Dense(256, activation='relu'))
-    model.add(Dense(NUM_CLASSES, activation='softmax'))
+    model.add(Dense(len(categories), activation='softmax'))
     # model.add(Dense(num_classes, activation='softmax'))
 
     print("test_x.shape: ", test_x.shape)
@@ -124,8 +234,7 @@ def cnn1():
     return test_x, test_y, pred_y.argmax(axis=1)
 
 
-def cnn2():
-
+def cnn2(categories):
     print("\n-----------------------------------------------")
     print("--------  Convolution Neural Network 2 ----------")
     print("-----------------------------------------------\n")
@@ -140,7 +249,7 @@ def cnn2():
     model.add(Conv2D(26, kernel_size=(7, 7), padding="same", activation='relu', input_shape=IMG_SHAPE))
     model.add(Flatten())
     model.add(Dense(256, activation='relu'))
-    model.add(Dense(NUM_CLASSES, activation='softmax'))
+    model.add(Dense(len(categories), activation='softmax'))
     # model.add(Dense(num_classes, activation='softmax'))
 
     print("test_x.shape: ", test_x.shape)
@@ -171,69 +280,62 @@ def cnn2():
     return test_x, test_y, pred_y.argmax(axis=1)
 
 
-def log_reg():
+# Load a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
+def extract_single_annotation(row):
+    id = row[0]
+    cat_id = row[1]
 
-    print("\n-----------------------------------------------")
-    print("---------   Logistic Classification  ----------")
-    print("-----------------------------------------------\n")
+    height = abs(row[4] - row[2])
+    width = abs(row[5] - row[3])
 
-    # # LOAD the preprocessed data to a file, so we can skip preprocessing when testing the neural network.
-    train_x, train_y, test_x, test_y, val_x, val_y = load_test_train_val(False)
+    # Select the columns for o_bbox
+    start_index = 5
+    o_bbox = []
+    for i in range(0, 4):
+        o_bbox.append((row[start_index + i * 2], row[start_index + i * 2 + 1]))
 
-    # Convert labels to integers.
-    label_encoder = preprocessing.LabelEncoder()
-    label_encoder.fit_transform(LABELS)
+    # Find the smallest magnitude angle from -pi/4 to pi/4. This represents the orientation of o_bbox.
+    # Calculate the tan angle for each side. Watch the divide by zero errors.
+    angles = [0, 0, 0, 0]
 
-    # Fit the model with training data and test it after fitting.
-    # X data must be standardized so logistic regression can complete in < 1000 iterations.
-    regression = linear_model.LogisticRegression(max_iter=LOG_REG_MAX_ITER)
-    regression.fit(train_x, train_y)
-    pred_y = regression.predict(test_x)
+    for i in range(0, 4):
+        x0 = o_bbox[i][0]
+        y0 = o_bbox[i][1]
 
-    print(metrics.classification_report(test_y, pred_y, target_names=label_encoder.classes_))
+        if i == 3:
+            x1 = o_bbox[0][0]  # Loop back to the first entry in the array.
+            y1 = o_bbox[0][1]  # This avoids index out of bounds error.
+        else:
+            x1 = o_bbox[i + 1][0]
+            y1 = o_bbox[i + 1][1]
 
-    plt.figure()
-    skplt.metrics.plot_confusion_matrix(test_y, pred_y, title=("Logistic Regression Confusion Matrix"), cmap="Reds")
-    plt.yticks(label_encoder.fit_transform(label_encoder.classes_), label_encoder.classes_)
-    plt.show()
+        if y1 - y0 == 0:  # Avoid dividing by zero.
+            angles[i] = 999  # We arbitrarily use 999 to represent infinity.
+        elif x1 - x0 == 0:  # Avoid tan(0) where angle = 0.
+            angles[i] = 0
+        else:
+            angles[i] = math.tan((x1 - x0) / (y1 - y0))
 
-    return test_x, test_y, pred_y
+    orientation = math.pi / 4
+    for i in range(0, 4):
+        if abs(angles[i] < orientation):
+            orientation = angles[i]
 
+    # print("angles:", angles, "\n   o_bbox:", o_bbox, "\n   orientation :", orientation)
 
-def load_from_images():
-    #   Get the path for the dataset from wherever the user has placed it on their machine.
-    #       Assume project file structures are unchanged.
-    data_path = os.path.join(ROOT_PATH + '\\Rebelo_dataset')
+    img_path = ANN_IMG_PATH + str(id) + ".jpg"
+    if not os.path.exists(img_path):
+        print("\nThe annotation image does not exist! Skipped loading this image\n   img_path:   ", img_path)
 
-    print("Data from: ", data_path)
+    try:
+        img = cv.imread(img_path, cv.IMREAD_GRAYSCALE)
+    except cv.Error as e:
+        print(e)
 
-    # Load the data and their labels into a single data frame. Labels are the folder name for each symbol type.
-    data = []
-    labels = []
-    class_folders = os.listdir(data_path)
-    print(class_folders)
+    if img is None:
+        print(" !!! NO IMAGE WAS LOADED !!! \n id:", id)
 
-    for class_name in class_folders:
-        image_list = os.listdir(os.path.join(data_path + '\\' + str(class_name)))
-
-        for image_name in image_list:
-            img_path = os.path.join(data_path + '\\' + str(class_name) + '\\' + image_name)
-            img = cv.imread(img_path)
-            # img = bound_image(img)
-            data.append(img)
-            labels.append(class_name)
-
-    data = np.array(data)
-    labels = np.array(labels)
-
-    # Encode the labels as integers
-    label_encoder = preprocessing.LabelEncoder()
-    labels = label_encoder.fit_transform(labels)
-
-    # show some information on memory consumption of the images
-    print("\nData size: {:.1f}MB".format(data.nbytes / (1024 * 1000.0)))
-
-    return data, labels
+    return id, cat_id, (height, width, orientation), img
 
 
 def load_from_numpy(file_name: str):
@@ -266,6 +368,34 @@ def load_test_train_val(cnn: bool):
     return train_x, train_y, test_x, test_y, val_x, val_y
 
 
+def log_reg(categories):
+    print("\n-----------------------------------------------")
+    print("---------   Logistic Classification  ----------")
+    print("-----------------------------------------------\n")
+
+    # # LOAD the preprocessed data to a file, so we can skip preprocessing when testing the neural network.
+    train_x, train_y, test_x, test_y, val_x, val_y = load_test_train_val(False)
+
+    # Convert labels to integers.
+    label_encoder = preprocessing.LabelEncoder()
+    label_encoder.fit_transform(categories)
+
+    # Fit the model with training data and test it after fitting.
+    # X data must be standardized so logistic regression can complete in < 1000 iterations.
+    regression = linear_model.LogisticRegression(max_iter=LOG_REG_MAX_ITER)
+    regression.fit(train_x, train_y)
+    pred_y = regression.predict(test_x)
+
+    print(metrics.classification_report(test_y, pred_y, target_names=label_encoder.classes_))
+
+    plt.figure()
+    skplt.metrics.plot_confusion_matrix(test_y, pred_y, title=("Logistic Regression Confusion Matrix"), cmap="Reds")
+    plt.yticks(label_encoder.fit_transform(label_encoder.classes_), label_encoder.classes_)
+    plt.show()
+
+    return test_x, test_y, pred_y
+
+
 def save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, cnn: bool):
     if cnn:
         save_to_numpy(train_x, "cnn_train_x.npy")
@@ -295,34 +425,7 @@ def save_to_numpy(data: ndarray, file_name: str):
     np.save(file_path, data)
 
 
-def test_train_val_split(data, labels, train_per: float, test_per: float, val_per: float):
-
-    if train_per + test_per + val_per != 100.:
-        print("ERROR:: test_train_val_split percentages must add up to 100%.")
-        print("    train_per: ", train_per)
-        print("    test_per: ", test_per)
-        print("    val_per: ", val_per)
-
-    # Split the data into training, testing, and validation.
-    test_val_size = (100. - train_per) / 100.
-    train_x, rem_x, train_y, rem_y = train_test_split(data, labels, test_size=test_val_size, random_state=42)
-
-    val_size = (val_per / 100.) / test_val_size
-    test_x, val_x, test_y, val_y = train_test_split(rem_x, rem_y, test_size=val_size, random_state=42)
-
-    # print("Training % ::", round(float(len(train_x)) / len(data) * 100, 2))
-    # print("Testing % ::", round(float(len(test_x)) / len(data) * 100, 2))
-    # print("Validation % ::", round(float(len(val_x)) / len(data) * 100, 2))
-
-    print("\nTraining size ::", str(len(train_x)))
-    print("Testing size :: ", str(len(test_x)))
-    print("Validation size ::", str(len(val_x)))
-
-    return train_x, train_y, test_x, test_y, val_x, val_y
-
-
 def vote(test_x, test_y, cnn1_pred_y, cnn2_pred_y, log_reg_pred_y):
-
     pred_final = np.zeros(len(test_y))
 
     for i, x in enumerate(test_x):
@@ -368,69 +471,60 @@ def vote(test_x, test_y, cnn1_pred_y, cnn2_pred_y, log_reg_pred_y):
     return pred_final
 
 
-def main():
+# ============== MAIN CODE =========================================================================================
 
-    print("\n---- CNN PREPROCESSING ----\n")
+print("\n----  DATA PREPROCESSING  ----\n")
 
-    data, labels = load_from_images()
-    train_x, train_y, test_x, test_y, val_x, val_y = test_train_val_split(data, labels, 60., 30., 10.)
+# Load the data
+convert_sql_to_numpy(SQL_DENSE_TEST)
+# convert_sql_to_numpy(SQL_DENSE_TRAIN)
 
-    # Invert binary images for masking. White <--> Black
-    train_x = np.invert(train_x)
-    test_x = np.invert(test_x)
-    val_x = np.invert(val_x)
-
-    # Flatten the data.
-    train_x = train_x.reshape(train_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
-    test_x = test_x.reshape(test_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
-    val_x = val_x.reshape(val_x.shape[0], IMG_SHAPE[0], IMG_SHAPE[1], 3).astype('float') / 255.0
-
-    # Convert labels to vectors.
-    train_y = keras_utils.to_categorical(train_y, num_classes=NUM_CLASSES)
-    test_y = keras_utils.to_categorical(test_y, num_classes=NUM_CLASSES)
-    val_y = keras_utils.to_categorical(val_y, num_classes=NUM_CLASSES)
-
-    # SAVE the preprocessed CNN data to a file. This way we can ensure train, test, val datasets are equivalent
-    # and we can skip preprocessing when testing the neural networks.
-    save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, True)
-
-    print("\n---- LOG REG PREPROCESSING ----\n")
-    data = data.reshape((data.shape[0], IMG_SHAPE[0] * IMG_SHAPE[1] * 3))
-    train_x, train_y, test_x, test_y, val_x, val_y = test_train_val_split(data, labels, 60., 30., 10.)
-
-    # Invert binary images for masking. White <--> Black
-    train_x = np.invert(train_x)
-    test_x = np.invert(test_x)
-    val_x = np.invert(val_x)
-
-    save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, False)
-
-    print("\n---- MODELS ----\n")
-
-    # Run the models. test_x and test_y
-
-    test_x, test_y, pred_y_cnn1 = cnn1()
-    test_x, test_y, pred_y_cnn2 = cnn2()
-    test_x, test_y, pred_y_logreg = log_reg()
-
-    pred_final = vote(test_x, test_y, pred_y_cnn1, pred_y_cnn2, pred_y_logreg)
-
-    # Convert labels to integers.
-    label_encoder = preprocessing.LabelEncoder()
-    label_encoder.fit_transform(LABELS)
-    print(metrics.classification_report(test_y, pred_final, target_names=label_encoder.classes_))
-
-    plt.figure()
-    skplt.metrics.plot_confusion_matrix(test_y, pred_final, title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
-    plt.yticks(label_encoder.fit_transform(label_encoder.classes_), label_encoder.classes_)
-    plt.show()
-
-
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    main()
-
-
+# # Encode the labels as integers
+# label_encoder = preprocessing.LabelEncoder()
+# labels = label_encoder.fit_transform(labels)
+#
+# # Convert labels to vectors.
+# train_y = keras_utils.to_categorical(train_y, num_classes=NUM_CLASSES)
+# val_y = keras_utils.to_categorical(val_y, num_classes=NUM_CLASSES)
+#
+# # SAVE the preprocessed CNN data to a file. This way we can ensure train, test, val datasets are equivalent
+# # and we can skip preprocessing when testing the neural networks.
+# save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, True)
+#
+# print("\n---- LOG REG PREPROCESSING ----\n")
+# data = data.reshape((data.shape[0], IMG_SHAPE[0] * IMG_SHAPE[1] * 3))
+# train_x, train_y, test_x, test_y, val_x, val_y = test_train_val_split(data, labels, 60., 30., 10.)
+#
+# # Invert binary images for masking. White <--> Black
+# train_x = np.invert(train_x)
+# test_x = np.invert(test_x)
+# val_x = np.invert(val_x)
+#
+# save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, False)
+#
+# print("\n---- MODELS ----\n")
+#
+# # Run the models. test_x and test_y
+#
+# test_x, test_y, pred_y_cnn1 = cnn1()
+# test_x, test_y, pred_y_cnn2 = cnn2()
+# test_x, test_y, pred_y_logreg = log_reg()
+#
+# pred_final = vote(test_x, test_y, pred_y_cnn1, pred_y_cnn2, pred_y_logreg)
+#
+# # Convert labels to integers.
+# label_encoder = preprocessing.LabelEncoder()
+# label_encoder.fit_transform(LABELS)
+# print(metrics.classification_report(test_y, pred_final, target_names=label_encoder.classes_))
+#
+# plt.figure()
+# skplt.metrics.plot_confusion_matrix(test_y, pred_final, title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
+# plt.yticks(label_encoder.fit_transform(label_encoder.classes_), label_encoder.classes_)
+# plt.show()
+#
+#
+# ============== LEGACY FUNCTIONS ======================================================================================
+#
 # This function is not currently necessary, but it may come in handy later.
 # def bound_image(img: ndarray):
 #

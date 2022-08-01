@@ -13,6 +13,9 @@ import cv2 as cv
 
 # ============== CONSTANTS =========================================================================================
 
+SRC_PATH = os.path.join("F://OMR_Datasets/DeepScoresV2_dense/images/")
+SAVE_PATH = os.path.join("F://OMR_Datasets/DS2_Transformed/annotations/")
+
 SQL_DENSE = 'ds2_dense'
 SQL_DENSE_TEST = 'ds2_dense_test'
 SQL_DENSE_TRAIN = 'ds2_dense_train'
@@ -34,12 +37,12 @@ def show_image(img, img_id: int, scale_x: float = 1, scale_y: float = 1):
 
 
 # Extract the pixelwise annotations from every image this database refers to.
-def extract_all_annotations(database: str):
-    print("\n\n***  Initializing MySQL %s DB connection...  ***" % database)
+def extract_all_annotations(sql_db: str):
+    print("\n\n***  Initializing MySQL %s DB connection...  ***" % sql_db)
 
     try:
         connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost',
-                                                  db=database, buffered=True)
+                                             db=sql_db, buffered=True)
         cursor = connection.cursor()
 
         message = "SELECT id FROM images"
@@ -62,7 +65,6 @@ def extract_all_annotations(database: str):
 # Extract the pixelwise data for every annotation in a single image. Then save each into a new file.
 #       In grouping this task by individual images we avoid potential memory issues.
 def extract_img_ann(connection, cursor, img, img_id):
-    save_folder = "F://OMR_Datasets/DS2_Transformed/annotations/"
 
     message = "SELECT * FROM annotations WHERE img_id = \'%s\'" % img_id
     cursor.execute(message)
@@ -78,11 +80,7 @@ def extract_img_ann(connection, cursor, img, img_id):
                   (round(ann[12]), round(ann[13])),
                   (round(ann[14]), round(ann[15]))]
 
-        cv.line(img_color, o_bbox[0], o_bbox[1], (255, 0, 0), 1)
-        cv.line(img_color, o_bbox[1], o_bbox[2], (255, 0, 0), 1)
-        cv.line(img_color, o_bbox[2], o_bbox[3], (255, 0, 0), 1)
-        cv.line(img_color, o_bbox[3], o_bbox[0], (255, 0, 0), 1)
-
+        # Determine the left and rightmost sides.
         left = img.shape[1]  # Initialize these values at their opposite side.
         right = 0
         for i in range(8, 15, 2):
@@ -91,6 +89,7 @@ def extract_img_ann(connection, cursor, img, img_id):
             if ann[i] > right:
                 right = math.ceil(ann[i])  # Round up for the right side.
 
+        # Determine the
         top = img.shape[0]  # Initialize these values at their opposite side.
         bottom = 0
         for i in range(9, 16, 2):
@@ -117,7 +116,7 @@ def extract_img_ann(connection, cursor, img, img_id):
         img_out = cv.bitwise_and(img_out, img_out, mask=obbox_mask)
 
         filename = str(ann[0]) + '.jpg'
-        save_path = os.path.join(save_folder + filename)
+        save_path = SAVE_PATH + filename
 
         # print("annotation:  ",
         #       "\n   id:", ann[0],
@@ -136,7 +135,7 @@ def get_img_by_id(connection, img_id: int):
     connection.commit()
     file_name = cursor.fetchall()[0][0]  # [0][0] Otherwise returns a one-entry array with a one-entry tuple.
 
-    img_path = os.path.join("F://OMR_Datasets/DeepScoresV2_dense/images/" + file_name)
+    img_path = SRC_PATH + file_name
     if not os.path.exists(img_path):
         print("The image does not exist!\n   img_path:   ", img_path)
         return
