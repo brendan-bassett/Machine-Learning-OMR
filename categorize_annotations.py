@@ -138,16 +138,18 @@ def convert_sql_to_numpy(sql_src: str):
         ann_cat_ids_all = []    # data for a single image. This way we can load the data quickly without copying
         ann_metas_all = []       # large numpy arrays. After loading we will append each sub-list to a numpy array.
         ann_imgs_all = []
+        ann_fails_all = []
 
         # Load the annotation data from the SQL database.
         # Load the pixelwise annotation data from jpg files.
         for img_id in img_ids:
-            ids, c_ids, metas, imgs = load_single_image(img_id, connection, cursor)
+            ids, c_ids, metas, imgs, fails = load_single_image(img_id, connection, cursor)
 
             ann_ids_all.append(ids)  # The attach a REFERENCE to the data array we created. Later we will use the
             ann_cat_ids_all.append(c_ids)  # reference to merge into a numpy array. This process enables multithreading.
             ann_metas_all.append(metas)  # If we appended to numpy then numpy will copy the array for each append,
             ann_imgs_all.append(imgs)  # which is much too slow.
+            ann_fails_all.append(fails)
 
         # Consolidate the annotation data into numpy arrays by appending them in groups (by image).
 
@@ -155,6 +157,7 @@ def convert_sql_to_numpy(sql_src: str):
         ann_cat_ids_all_np = np.array([])
         ann_metas_all_np = np.array([])
         ann_imgs_all_np = np.array([])
+        ann_fails_all_np = np.array([])
 
         logging.info("Consolidating data into numpy arrays...")
 
@@ -189,6 +192,13 @@ def convert_sql_to_numpy(sql_src: str):
         save_to_numpy(ann_imgs_all_np, save_path, "ann_imgs_all.npy")
 
         logging.info("Annotations data saved to numpy files.")
+
+        # Write the list of annotation ids that failed to load into a .npy file.
+
+        for f in ann_fails_all:
+            ann_fails_all_np = np.append(ann_fails_all_np, f)
+
+        save_to_numpy(ann_fails_all_np, save_path, "ann_fails_all.npy")
 
     finally:
         logging.info("***  MySQL Connection closed.  ***")
@@ -312,6 +322,7 @@ def load_single_image(img_id: int, connection, cursor):
     cat_ids = []
     metas = []
     imgs = []
+    fails = []
 
     # Load & process the data for every annotation on this image.
     for row in fetch:
@@ -319,14 +330,15 @@ def load_single_image(img_id: int, connection, cursor):
         id, cat_id, meta, img = extract_single_annotation(row)
 
         if img is None:  # The image file may have failed to load.
-            continue
+            logging.error(" !! Img read failed !!   annotation id: %d", id)
+            fails.append(id)
 
         ids.append(id)
         cat_ids.append(cat_id)
         metas.append(meta)
         imgs.append(img)
 
-    return ids, cat_ids, metas, imgs
+    return ids, cat_ids, metas, imgs, fails
 
 
 # Load a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
@@ -381,19 +393,21 @@ def extract_single_annotation(row):
         img = cv.imread(img_path, cv.IMREAD_GRAYSCALE)
     except cv.Error as e:
         logging.error(e)
-
-    if img is None:
-        logging.error(" !! Img read failed at cv.imread() !!   id: %d", id)
+        img = None
 
     return id, cat_id, (height, width, orientation), img
 
 
-# Save a single numpy binary .npy file into a numpy array.
+# Load a single numpy array from a binary numpy .npy file.
 def load_from_numpy(folder_path: str, file_name: str):
     file_path = os.path.join(folder_path + file_name)
 
+    if not os.path.exists(folder_path):
+        logging.error("No numpy save directory! Please save a set of numpy files into folder:   ", folder_path)
+        return
+
     if not os.path.exists(file_path):
-        logging.error("No Numpy_Save directory! Please put the numpy file in directory:   ", file_path)
+        logging.error("No file to load from! Please save the numpy file into:   ", file_path)
         return
 
     return np.load(file_path)
@@ -435,6 +449,11 @@ def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
 
     file_path = os.path.join(folder_path + file_name)
     np.save(file_path, data)
+
+
+# Make the annotations into a standard size of image.
+def standardize_annotations():
+    pass
 
 
 def vote(test_x, test_y, cnn1_pred_y, cnn2_pred_y, log_reg_pred_y):
@@ -502,9 +521,11 @@ logger.addHandler(fh)
 
 logging.info("=====  DATA PREPROCESSING  =====")
 
-# Load the data
+# Import the necessary data from sql and save into a set of numpy binary files.
 convert_sql_to_numpy(SQL_DENSE_TEST)
 # convert_sql_to_numpy(SQL_DENSE_TRAIN)
+
+
 
 # # Encode the labels as integers
 # label_encoder = preprocessing.LabelEncoder()
