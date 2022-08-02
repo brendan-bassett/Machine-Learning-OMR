@@ -34,6 +34,7 @@ Publication:    “Optical recognition of music symbols: A comparative study”
 """
 
 # SETUP ****************************************************************************************************************
+import gzip
 import logging
 import math
 import threading
@@ -67,6 +68,8 @@ SQL_DENSE_TRAIN = 'ds2_dense_train'
 
 ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or 'muscima++'
 
+STD_IMG_SHAPE = (100, 100)      # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = height
+
 CNN1_EPOCHS = 4
 CNN2_EPOCHS = 5
 
@@ -85,8 +88,6 @@ LOG_REG_MAX_ITER = 2000
 # Convert all the pixelwise annotations for a database into numpy data arrays and labels. Then save them into flat
 # files for later use.
 def convert_sql_to_numpy(sql_src: str):
-    # Clear the instance numpy datasets in case they already have something in them.
-    categories = {}
 
     logging.info("***  Initializing MySQL %s DB connection...  ***" % sql_src)
 
@@ -103,10 +104,9 @@ def convert_sql_to_numpy(sql_src: str):
         connection.commit()
         fetch = cursor.fetchall()
 
+        categories = []
         for row in fetch:
-            categories[row[0]] = row[1]
-
-        labels = np.array(list(categories.keys()))
+            categories.append(row)
 
         # Load the appropriate category for each annotation.
         logging.info("Loading annotation_categories...")
@@ -117,10 +117,9 @@ def convert_sql_to_numpy(sql_src: str):
         connection.commit()
         fetch = cursor.fetchall()
 
-        # Convert to dict for hashing during merge with annotation data.
-        ann_cats = {}
+        ann_cats = []
         for row in fetch:
-            ann_cats[row[0]] = row[1]  # ann_cat.ann_id (key), ann_cat.cat_id (value)
+            ann_cats.append([row[0], row[1]])  # ann_cat.ann_id (key), ann_cat.cat_id (value)
 
         # Obtain a list of every source image referred to by this database.into
         logging.info("Loading images list...")
@@ -135,7 +134,7 @@ def convert_sql_to_numpy(sql_src: str):
         logging.info("   img_ids: %s" % img_ids)
 
         ann_ids_all = []        # These Python lists each contain references to other lists, each containing annotation
-        ann_cat_ids_all = []    # data for a single image. This way we can load the data quickly without copying
+        ann_cats_all = []    # data for a single image. This way we can load the data quickly without copying
         ann_metas_all = []       # large numpy arrays. After loading we will append each sub-list to a numpy array.
         ann_imgs_all = []
         ann_fails_all = []
@@ -143,10 +142,10 @@ def convert_sql_to_numpy(sql_src: str):
         # Load the annotation data from the SQL database.
         # Load the pixelwise annotation data from jpg files.
         for img_id in img_ids:
-            ids, c_ids, metas, imgs, fails = load_single_image(img_id, connection, cursor)
+            ids, c_ids, metas, imgs, fails = load_img_sql(img_id, connection, cursor)
 
             ann_ids_all.append(ids)  # The attach a REFERENCE to the data array we created. Later we will use the
-            ann_cat_ids_all.append(c_ids)  # reference to merge into a numpy array. This process enables multithreading.
+            ann_cats_all.append(c_ids)  # reference to merge into a numpy array. This process enables multithreading.
             ann_metas_all.append(metas)  # If we appended to numpy then numpy will copy the array for each append,
             ann_imgs_all.append(imgs)  # which is much too slow.
             ann_fails_all.append(fails)
@@ -154,7 +153,7 @@ def convert_sql_to_numpy(sql_src: str):
         # Consolidate the annotation data into numpy arrays by appending them in groups (by image).
 
         ann_ids_all_np = np.array([])
-        ann_cat_ids_all_np = np.array([])
+        ann_cats_all_np = np.array([])
         ann_metas_all_np = np.array([])
         ann_imgs_all_np = np.array([])
         ann_fails_all_np = np.array([])
@@ -163,33 +162,24 @@ def convert_sql_to_numpy(sql_src: str):
 
         for i, ann_id in enumerate(ann_ids_all):
             ann_ids_all_np = np.append(ann_ids_all_np, ann_id)
-            ann_cat_ids_all_np = np.append(ann_cat_ids_all_np, ann_cat_ids_all[i])
+            ann_cats_all_np = np.append(ann_cats_all_np, ann_cats_all[i])
             ann_metas_all_np = np.append(ann_metas_all_np, ann_metas_all[i])
             ann_imgs_all_np = np.append(ann_imgs_all_np, ann_imgs_all[i])
 
         logging.info("Saving numpy files...")
 
-        if sql_src is SQL_DENSE:
-            save_path = DS2_DENSE_SAVE_PATH + "/numpy_save/dense/"
-        elif sql_src is SQL_DENSE_TEST:
-            save_path = DS2_DENSE_SAVE_PATH + "/numpy_save/dense_test/"
-        elif sql_src is SQL_DENSE_TRAIN:
-            save_path = DS2_DENSE_SAVE_PATH + "/numpy_save/dense_train/"
-        else:
-            save_path = ""
-            logging.error("sql_src does not match any of the SQL constants.")
-
+        save_path = get_np_save_path(sql_src)
         folder_path = os.path.join(save_path)
 
         if not os.path.exists(folder_path):
             os.mkdir(folder_path)
             logging.info("No numpy_save directory. Created new one:  %s" % str(folder_path))
 
-        save_to_numpy(np.array(list(categories)), save_path, "categories.npy")
-        save_to_numpy(ann_ids_all_np, save_path, "ann_ids_all.npy")
-        save_to_numpy(ann_metas_all_np, save_path, "ann_metas_all.npy")
-        save_to_numpy(ann_cat_ids_all_np, save_path, "ann_cat_ids_all.npy")
-        save_to_numpy(ann_imgs_all_np, save_path, "ann_imgs_all.npy")
+        save_to_numpy(np.array(list(categories)), save_path, "categories")
+        save_to_numpy(ann_ids_all_np, save_path, "ann_ids_all")
+        save_to_numpy(ann_metas_all_np, save_path, "ann_metas_all")
+        save_to_numpy(ann_cats_all_np, save_path, "ann_cats_all")
+        save_to_numpy(ann_imgs_all_np, save_path, "ann_imgs_all")
 
         logging.info("Annotations data saved to numpy files.")
 
@@ -198,7 +188,7 @@ def convert_sql_to_numpy(sql_src: str):
         for f in ann_fails_all:
             ann_fails_all_np = np.append(ann_fails_all_np, f)
 
-        save_to_numpy(ann_fails_all_np, save_path, "ann_fails_all.npy")
+        save_to_numpy(ann_fails_all_np, save_path, "ann_fails_all")
 
     finally:
         logging.info("***  MySQL Connection closed.  ***")
@@ -296,54 +286,10 @@ def cnn2(categories):
     return test_x, test_y, pred_y.argmax(axis=1)
 
 
-# Loads the annotations for a single image from SQL.
-def load_single_image(img_id: int, connection, cursor):
-    logging.info("Loading annotations from image %s" % img_id)
-
-    message = "SELECT file_name FROM images WHERE id = \'%s\'" % img_id
-    cursor.execute(message)
-    connection.commit()
-    file_name = cursor.fetchall()[0][0]  # [0][0] Otherwise returns a one-entry array with a one-entry tuple.
-
-    # Get the annotation data most useful for our model. Only get the annotations for a single image at a time.
-    # Add the annotation's category which corresponds to the annotation set being used in the model.
-    message = "SELECT ann.id, ann_cat.cat_id, " \
-              "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
-              "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
-              "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3 FROM annotations ann " \
-              "INNER JOIN annotations_categories ann_cat INNER JOIN categories cat ON (ann.img_id=\'%s\' " \
-              "AND ann.id=ann_cat.ann_id AND ann_cat.cat_id=cat.id AND cat.annotation_set=\'%s\')" \
-              % (img_id, ANNOTATION_SET)
-    cursor.execute(message)
-    connection.commit()
-    fetch = cursor.fetchall()
-
-    ids = []
-    cat_ids = []
-    metas = []
-    imgs = []
-    fails = []
-
-    # Load & process the data for every annotation on this image.
-    for row in fetch:
-
-        id, cat_id, meta, img = extract_single_annotation(row)
-
-        if img is None:  # The image file may have failed to load.
-            logging.error(" !! Img read failed !!   annotation id: %d", id)
-            fails.append(id)
-
-        ids.append(id)
-        cat_ids.append(cat_id)
-        metas.append(meta)
-        imgs.append(img)
-
-    return ids, cat_ids, metas, imgs, fails
-
-
 # Load a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
 #   May return 'None' for img if the img file failed to load.
-def extract_single_annotation(row):
+#   Returns (height, width, orientation) for meta.
+def extract_annotation(row):
     id = row[0]
     cat_id = row[1]
 
@@ -395,22 +341,87 @@ def extract_single_annotation(row):
         logging.error(e)
         img = None
 
-    return id, cat_id, (height, width, orientation), img
+    return id, cat_id, [height, width, orientation], img
+
+
+# Get the save path for numpy data.
+def get_np_save_path(sql_src: str):
+    if sql_src is SQL_DENSE:
+        return DS2_DENSE_SAVE_PATH + "/numpy_save/dense/"
+    elif sql_src is SQL_DENSE_TEST:
+        return DS2_DENSE_SAVE_PATH + "/numpy_save/dense_test/"
+    elif sql_src is SQL_DENSE_TRAIN:
+        return DS2_DENSE_SAVE_PATH + "/numpy_save/dense_train/"
+    else:
+        logging.error("sql_src does not match any of the SQL constants.")
+        return ""
+
+
+# Loads the annotations for a single image from SQL.
+def load_img_sql(img_id: int, connection, cursor):
+    logging.info("Loading annotations from image %s" % img_id)
+
+    message = "SELECT file_name FROM images WHERE id = \'%s\'" % img_id
+    cursor.execute(message)
+    connection.commit()
+    file_name = cursor.fetchall()[0][0]  # [0][0] Otherwise returns a one-entry array with a one-entry tuple.
+
+    # Get the annotation data most useful for our model. Only get the annotations for a single image at a time.
+    # Add the annotation's category which corresponds to the annotation set being used in the model.
+    message = "SELECT ann.id, ann_cat.cat_id, " \
+              "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
+              "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
+              "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3 FROM annotations ann " \
+              "INNER JOIN annotations_categories ann_cat INNER JOIN categories cat ON (ann.img_id=\'%s\' " \
+              "AND ann.id=ann_cat.ann_id AND ann_cat.cat_id=cat.id AND cat.annotation_set=\'%s\')" \
+              % (img_id, ANNOTATION_SET)
+    cursor.execute(message)
+    connection.commit()
+    fetch = cursor.fetchall()
+
+    ids = []
+    cat_ids = []
+    metas = []
+    imgs = []
+    fails = []
+
+    # Load & process the data for every annotation on this image.
+    for row in fetch:
+
+        id, cat_id, meta, img = extract_annotation(row)
+
+        if img is None:  # The image file may have failed to load.
+            logging.error(" !! Img read failed !!   annotation id: %d", id)
+            fails.append(id)
+            continue
+
+        ids.append(id)
+        cat_ids.append(cat_id)
+        metas.append(meta)
+
+        img_std = standardize_ann_img(img)
+        imgs.append(img_std)
+
+    return ids, cat_ids, metas, imgs, fails
 
 
 # Load a single numpy array from a binary numpy .npy file.
 def load_from_numpy(folder_path: str, file_name: str):
-    file_path = os.path.join(folder_path + file_name)
+    file_path = os.path.join(folder_path + file_name + '.npy.gz')
 
     if not os.path.exists(folder_path):
-        logging.error("No numpy save directory! Please save a set of numpy files into folder:   ", folder_path)
+        logging.error("No numpy save directory! Please save a set of numpy files into folder:   %s" % folder_path)
         return
 
     if not os.path.exists(file_path):
-        logging.error("No file to load from! Please save the numpy file into:   ", file_path)
+        logging.error("No file to load from! Please save the numpy file into:   %s" % file_path)
         return
 
-    return np.load(file_path)
+    file = gzip.GzipFile(file_path, "r")
+    array = np.load(file, allow_pickle=True)   # allow_pickle=True enables pickled objects, which
+                                                    # can be a security risk. We're using it anyways.
+
+    return array
 
 
 def log_reg(categories):
@@ -447,13 +458,43 @@ def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
         os.mkdir(folder_path)
         logging.log("No numpy_save subdirectory for this database. Created new one:  %s" % folder_path)
 
-    file_path = os.path.join(folder_path + file_name)
-    np.save(file_path, data)
+    file_path = os.path.join(folder_path + file_name + ".npy.gz")
+    file = gzip.GzipFile(file_path, "w")
+    np.save(file=file, arr=data)
+    file.close()
 
 
-# Make the annotations into a standard size of image.
-def standardize_annotations():
-    pass
+# Make a single annotation into a standard size of image. Images too large will be resized down.
+# Images too small will be padded with black pixels. This should help retain the size of the annotation as much
+# as possible, while capping at a reasonably small size for the CNN.
+def standardize_ann_img(img):
+    width = len(img)
+    height = len(img[0])
+
+    dx = 0
+    dy = 0
+
+    # If the image is smaller than the standard shape, fill in horizontally and/or vertically with white space.
+    if width < STD_IMG_SHAPE[0]:
+        dx = STD_IMG_SHAPE[0] - width
+        width = STD_IMG_SHAPE[0]
+    if height < STD_IMG_SHAPE[1]:
+        dy = STD_IMG_SHAPE[1] - height
+        height = STD_IMG_SHAPE[1]
+
+    # logger.info("fill_img    width: %s   height: %s" % (width, height))
+    fill_img = cv.copyMakeBorder(img, (dy // 2), (dy // 2 + dy % 2), (dx // 2), (dx // 2 + dx % 2),
+                                 cv.BORDER_CONSTANT, 0)
+
+    if width == STD_IMG_SHAPE[0] and height == STD_IMG_SHAPE[1]:
+        return fill_img
+
+    else:
+        # If the image is larger than the standard shape, resize the image down.
+        # INTER_AREA is the most effective interpolation for image decimation beyond 0.5.
+        std_img = cv.resize(img, STD_IMG_SHAPE, interpolation=cv.INTER_AREA)
+
+        return std_img
 
 
 def vote(test_x, test_y, cnn1_pred_y, cnn2_pred_y, log_reg_pred_y):
@@ -522,34 +563,27 @@ logger.addHandler(fh)
 logging.info("=====  DATA PREPROCESSING  =====")
 
 # Import the necessary data from sql and save into a set of numpy binary files.
-convert_sql_to_numpy(SQL_DENSE_TEST)
+# convert_sql_to_numpy(SQL_DENSE_TEST)
 # convert_sql_to_numpy(SQL_DENSE_TRAIN)
 
+test_x = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "ann_imgs_all")
+ann_cats_all = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "ann_cats_all")
+categories = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "categories")
 
+cat_list = []
+for c in categories:
+    cat_list.append(c[0])
 
-# # Encode the labels as integers
-# label_encoder = preprocessing.LabelEncoder()
-# labels = label_encoder.fit_transform(labels)
-#
-# # Convert labels to vectors.
-# train_y = keras_utils.to_categorical(train_y, num_classes=NUM_CLASSES)
-# val_y = keras_utils.to_categorical(val_y, num_classes=NUM_CLASSES)
-#
-# # SAVE the preprocessed CNN data to a file. This way we can ensure train, test, val datasets are equivalent
-# # and we can skip preprocessing when testing the neural networks.
-# save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, True)
-#
-# logging.info("\n---- LOG REG PREPROCESSING ----\n")
-# data = data.reshape((data.shape[0], IMG_SHAPE[0] * IMG_SHAPE[1] * 3))
-# train_x, train_y, test_x, test_y, val_x, val_y = test_train_val_split(data, labels, 60., 30., 10.)
-#
-# # Invert binary images for masking. White <--> Black
-# train_x = np.invert(train_x)
-# test_x = np.invert(test_x)
-# val_x = np.invert(val_x)
-#
-# save_test_train_val(train_x, train_y, test_x, test_y, val_x, val_y, False)
-#
+# Encode the labels as integers
+label_encoder = preprocessing.LabelEncoder()
+labels = label_encoder.fit_transform(cat_list)
+
+# Convert y values to vectors.
+test_y = keras_utils.to_categorical(ann_cats_all, num_classes=len(cat_list))
+
+# Flatten the input data.
+test_x = test_x.reshape((test_x.shape[0], STD_IMG_SHAPE[0] * STD_IMG_SHAPE[1]))
+
 # logging.info("\n---- MODELS ----\n")
 #
 # # Run the models. test_x and test_y
