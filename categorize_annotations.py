@@ -34,10 +34,12 @@ Publication:    “Optical recognition of music symbols: A comparative study”
 """
 
 # SETUP ****************************************************************************************************************
+import gc
 import gzip
 import logging
 import math
 import threading
+from datetime import datetime
 
 import cv2 as cv
 import matplotlib.pyplot as plt
@@ -58,6 +60,7 @@ from keras.layers import Conv2D, MaxPooling2D
 from keras.models import Sequential
 
 # ============== CONSTANTS =========================================================================================
+from typing import List
 
 ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
 DS2_DENSE_SAVE_PATH = os.path.join("F://OMR_Datasets/DS2_Transformed")
@@ -68,7 +71,10 @@ SQL_DENSE_TRAIN = 'ds2_dense_train'
 
 ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or 'muscima++'
 
-STD_IMG_SHAPE = (100, 100)      # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = height
+STD_IMG_SHAPE = (100, 100)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = height
+
+ANN_LOAD_LIMIT = 20000  # The number of annotations to save at a time.
+BATCH_LOAD_SIZE = 256
 
 CNN1_EPOCHS = 4
 CNN2_EPOCHS = 5
@@ -85,11 +91,30 @@ LOG_REG_MAX_ITER = 2000
 
 # ============== FUNCTIONS =========================================================================================
 
+# Generate batches of annotations by a randomized set of ids.
+def batch_generator(ids, batch_size=BATCH_LOAD_SIZE):
+    batch = []
+    while True:
+        np.random.shuffle(ids)
+        for i in ids:
+            batch.append(i)
+            if len(batch) == batch_size:
+                yield load_batch(batch)
+                batch = []
+
+
 # Convert all the pixelwise annotations for a database into numpy data arrays and labels. Then save them into flat
 # files for later use.
 def convert_sql_to_numpy(sql_src: str):
+    logging.info("Initializing MySQL %s DB connection..." % sql_src)
 
-    logging.info("***  Initializing MySQL %s DB connection...  ***" % sql_src)
+    # Determine the path to the folder for saving numpy files.
+    save_path = get_np_save_path(sql_src)
+    folder_path = os.path.join(save_path)
+
+    if not os.path.exists(folder_path):
+        os.mkdir(folder_path)
+        logging.info("No numpy_save directory. Created new one:  %s" % str(folder_path))
 
     try:
         connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost',
@@ -108,18 +133,8 @@ def convert_sql_to_numpy(sql_src: str):
         for row in fetch:
             categories.append(row)
 
-        # Load the appropriate category for each annotation.
-        logging.info("Loading annotation_categories...")
-
-        message = "SELECT ann_id, cat_id FROM annotations_categories INNER JOIN categories cat " \
-                  "ON (cat.id = cat_id AND cat.annotation_set=\'%s\')" % ANNOTATION_SET
-        cursor.execute(message)
-        connection.commit()
-        fetch = cursor.fetchall()
-
-        ann_cats = []
-        for row in fetch:
-            ann_cats.append([row[0], row[1]])  # ann_cat.ann_id (key), ann_cat.cat_id (value)
+        logging.info("   saving categories")
+        save_to_numpy(np.array(list(categories)), save_path, "categories")
 
         # Obtain a list of every source image referred to by this database.into
         logging.info("Loading images list...")
@@ -133,81 +148,91 @@ def convert_sql_to_numpy(sql_src: str):
             img_ids.append(row[0])
         logging.info("   img_ids: %s" % img_ids)
 
-        ann_ids_all = []        # These Python lists each contain references to other lists, each containing annotation
-        ann_cats_all = []    # data for a single image. This way we can load the data quickly without copying
-        ann_metas_all = []       # large numpy arrays. After loading we will append each sub-list to a numpy array.
-        ann_imgs_all = []
-        ann_fails_all = []
-
         # Load the annotation data from the SQL database.
         # Load the pixelwise annotation data from jpg files.
+        # Consolidate the annotation data into numpy arrays, then save in batches to prevent RAM overload.
+
+        ann_ids_by_img = np.zeros(0)
+        ann_cat_ids_by_img = np.zeros(0)
+        ann_metas_by_img = np.zeros((0, 3))
+        ann_imgs_by_img = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
+        ann_fails_by_img = np.zeros(0)
+
+        save_counter = 0
+        imgs_loaded = 0
+        tot_imgs = len(img_ids)
+        start_time = datetime.now()
+        img_start_time = start_time
+
+        logging.info("Loading annotations...")
+
         for img_id in img_ids:
-            ids, c_ids, metas, imgs, fails = load_img_sql(img_id, connection, cursor)
+            logging.info("Loading annotations from image %s" % img_id)
 
-            ann_ids_all.append(ids)  # The attach a REFERENCE to the data array we created. Later we will use the
-            ann_cats_all.append(c_ids)  # reference to merge into a numpy array. This process enables multithreading.
-            ann_metas_all.append(metas)  # If we appended to numpy then numpy will copy the array for each append,
-            ann_imgs_all.append(imgs)  # which is much too slow.
-            ann_fails_all.append(fails)
+            ann_ids, ann_cat_ids, ann_metas, ann_imgs, ann_fails = load_by_img(img_id, connection, cursor)
 
-        # Consolidate the annotation data into numpy arrays by appending them in groups (by image).
+            # Even though concatenate here is slow (especially when the arrays get larger), we use numpy
+            # to prevent memory errors. Large Python lists of ints and floats use huge amounts of RAM.
+            ann_ids_by_img = np.concatenate((ann_ids_by_img, ann_ids))
+            ann_cat_ids_by_img = np.concatenate((ann_cat_ids_by_img, ann_cat_ids))
+            ann_metas_by_img = np.concatenate((ann_metas_by_img, ann_metas))
+            ann_imgs_by_img = np.concatenate((ann_imgs_by_img, ann_imgs))
+            ann_fails_by_img = np.concatenate((ann_fails_by_img, ann_fails))
 
-        ann_ids_all_np = np.array([])
-        ann_cats_all_np = np.array([])
-        ann_metas_all_np = np.array([])
-        ann_imgs_all_np = np.array([])
-        ann_fails_all_np = np.array([])
+            imgs_loaded += 1
+            time_now = datetime.now()
+            load_img_diff = (time_now - img_start_time).total_seconds()
+            load_all_diff = (time_now - start_time).total_seconds()
+            load_dur = (time_now - start_time).total_seconds()
+            img_start_time = time_now  # This must be after load_all_diff, load_all_diff, and load_dur
+            load_all_dur = load_all_diff * (tot_imgs / imgs_loaded)
 
-        logging.info("Consolidating data into numpy arrays...")
+            logging.info("   imgs loaded: (%d of %d)   anns loaded: %d   ~remaining time: %d min   time to load: %d s"
+                         % (imgs_loaded, tot_imgs, len(ann_metas_by_img),
+                            (load_all_dur - load_dur) / 60, load_img_diff))
 
-        for i, ann_id in enumerate(ann_ids_all):
-            ann_ids_all_np = np.append(ann_ids_all_np, ann_id)
-            ann_cats_all_np = np.append(ann_cats_all_np, ann_cats_all[i])
-            ann_metas_all_np = np.append(ann_metas_all_np, ann_metas_all[i])
-            ann_imgs_all_np = np.append(ann_imgs_all_np, ann_imgs_all[i])
+            # The meta and imgs arrays could possibly become too large, causing a RAM exceeded error.
+            # We batch save those two arrays. The rest are saved after all annotations have been loaded.
+            # Also save the final batch regardless.
 
-        logging.info("Saving numpy files...")
+            if len(ann_metas_by_img) > ANN_LOAD_LIMIT or imgs_loaded == tot_imgs:
+                index = '{0:04}'.format(save_counter)
+                logging.info("Load limit reached. Batch saving numpy files with index: %s" % index)
 
-        save_path = get_np_save_path(sql_src)
-        folder_path = os.path.join(save_path)
+                save_to_numpy(ann_metas_by_img, save_path, "ann_metas%s" % index)
+                save_to_numpy(ann_imgs_by_img, save_path, "ann_imgs%s" % index)
 
-        if not os.path.exists(folder_path):
-            os.mkdir(folder_path)
-            logging.info("No numpy_save directory. Created new one:  %s" % str(folder_path))
+                ann_metas_by_img = np.zeros((0, 3))
+                ann_imgs_by_img = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
+                save_counter += 1
 
-        save_to_numpy(np.array(list(categories)), save_path, "categories")
-        save_to_numpy(ann_ids_all_np, save_path, "ann_ids_all")
-        save_to_numpy(ann_metas_all_np, save_path, "ann_metas_all")
-        save_to_numpy(ann_cats_all_np, save_path, "ann_cats_all")
-        save_to_numpy(ann_imgs_all_np, save_path, "ann_imgs_all")
+                logging.info("   numpy files saved and arrays reset")
+
+            gc.collect()  # Ask the garbage collector to remove unreferenced data ASAP. Just in case.
+
+        # After all the annotations are loaded and batch-saved, save the remaining data to .npy
+
+        save_to_numpy(ann_ids_by_img, save_path, "ann_ids")
+        save_to_numpy(ann_cat_ids_by_img, save_path, "ann_cat_ids")
+        save_to_numpy(ann_fails_by_img, save_path, "ann_fails")
 
         logging.info("Annotations data saved to numpy files.")
 
-        # Write the list of annotation ids that failed to load into a .npy file.
-
-        for f in ann_fails_all:
-            ann_fails_all_np = np.append(ann_fails_all_np, f)
-
-        save_to_numpy(ann_fails_all_np, save_path, "ann_fails_all")
-
     finally:
-        logging.info("***  MySQL Connection closed.  ***")
+        logging.info("Closed MySQL %s database connection." % sql_src)
         connection.close()
         cv.destroyAllWindows()
 
 
-def cnn1(categories):
+def cnn1(test_x, test_y, train_x, train_y):
     logging.info("***  Convolution Neural Network 1 ***")
-
-    # # LOAD the preprocessed data from a file so the data is the same for each model.
-    train_x, train_y, test_x, test_y, val_x, val_y = load_test_train_val(True)
 
     model = Sequential()
     model.add(Dense(512, activation='relu'))
     model.add(Dense(256, activation='relu'))
     model.add(Dense(64, activation='relu'))
     model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Conv2D(24, kernel_size=(5, 5), padding="same", activation='relu', input_shape=IMG_SHAPE))
+    model.add(Conv2D(24, kernel_size=(5, 5), padding="same", activation='relu', input_shape=STD_IMG_SHAPE))
     model.add(MaxPooling2D(pool_size=(2, 2)))
     model.add(Flatten())
     model.add(Dense(256, activation='relu'))
@@ -249,10 +274,10 @@ def cnn2(categories):
     # the three models used in this project.
 
     # # LOAD the preprocessed data to a file, so we can skip preprocessing when testing the neural network.
-    train_x, train_y, test_x, test_y, val_x, val_y = load_test_train_val(True)
+    # train_x, train_y, test_x, test_y, val_x, val_y = load_test_train_val(True)
 
     model = Sequential()
-    model.add(Conv2D(26, kernel_size=(7, 7), padding="same", activation='relu', input_shape=IMG_SHAPE))
+    model.add(Conv2D(26, kernel_size=(7, 7), padding="same", activation='relu', input_shape=STD_IMG_SHAPE))
     model.add(Flatten())
     model.add(Dense(256, activation='relu'))
     model.add(Dense(len(categories), activation='softmax'))
@@ -289,7 +314,7 @@ def cnn2(categories):
 # Load a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
 #   May return 'None' for img if the img file failed to load.
 #   Returns (height, width, orientation) for meta.
-def extract_annotation(row):
+def ann_from_sql_row(row):
     id = row[0]
     cat_id = row[1]
 
@@ -357,17 +382,53 @@ def get_np_save_path(sql_src: str):
         return ""
 
 
-# Loads the annotations for a single image from SQL.
-def load_img_sql(img_id: int, connection, cursor):
-    logging.info("Loading annotations from image %s" % img_id)
+# Load a batch of annotations from sql and annotation images to numpy. Apply image preprocessing during load process.
+def load_batch(connection, ids_batch: List[int]):
+    cursor = connection.cursor()
 
-    message = "SELECT file_name FROM images WHERE id = \'%s\'" % img_id
+    logging.info("Loading batch from SQL and image files...")
+
+    message = "SELECT ann.id, ann_cat.cat_id, " \
+              "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
+              "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
+              "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3 FROM annotations ann " \
+              "INNER JOIN annotations_categories ann_cat INNER JOIN categories cat ON (ann.id IN \'%s\' " \
+              "AND ann.id=ann_cat.ann_id AND ann_cat.cat_id=cat.id AND cat.annotation_set=\'%s\')" \
+              % (ids_batch, ANNOTATION_SET)
     cursor.execute(message)
     connection.commit()
-    file_name = cursor.fetchall()[0][0]  # [0][0] Otherwise returns a one-entry array with a one-entry tuple.
+    fetch = cursor.fetchall()
 
-    # Get the annotation data most useful for our model. Only get the annotations for a single image at a time.
-    # Add the annotation's category which corresponds to the annotation set being used in the model.
+    ann_ids = []
+    ann_cat_ids = []
+    ann_metas = []
+    ann_imgs = []
+
+    # Load & process the data for every annotation on this image.
+    for row in fetch:
+
+        id, cat_id, meta, img = ann_from_sql_row(row)
+
+        if img is None:  # The image file may have failed to load.
+            logging.error("      !! Img read failed !!   annotation batch failed to load.   id: %d" % id)
+            return None, None, None, None
+
+        img_std = standardize_ann_img(img)
+        if img_std is None:
+            logging.error("      !! Img failed to standardize !!   annotation batch failed to load.   id: %d" % id)
+            return None, None, None, None
+
+        ann_ids.append(id)
+        ann_cat_ids.append(cat_id)
+        ann_metas.append(meta)
+        ann_imgs.append(img_std.tolist())
+
+    return np.array(ann_ids), np.array(ann_cat_ids), np.array(ann_metas), np.array(ann_imgs)
+
+
+# Get the annotation data most useful for our model. Only get the annotations for a single image at a time.
+#       Include the annotation's category which corresponds to the annotation set being used in the model.
+def load_by_img(img_id: int, connection, cursor):
     message = "SELECT ann.id, ann_cat.cat_id, " \
               "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
               "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
@@ -379,56 +440,96 @@ def load_img_sql(img_id: int, connection, cursor):
     connection.commit()
     fetch = cursor.fetchall()
 
-    ids = []
-    cat_ids = []
-    metas = []
-    imgs = []
-    fails = []
+    ann_ids = []
+    ann_cat_ids = []
+    ann_metas = []
+    ann_imgs = []
+    ann_fails = []
 
     # Load & process the data for every annotation on this image.
     for row in fetch:
 
-        id, cat_id, meta, img = extract_annotation(row)
+        id, cat_id, meta, img = ann_from_sql_row(row)
 
         if img is None:  # The image file may have failed to load.
-            logging.error(" !! Img read failed !!   annotation id: %d", id)
-            fails.append(id)
+            logging.error("      !! Img read failed !!   annotation failed to load.   id: %d" % id)
+            ann_fails.append(id)
             continue
 
-        ids.append(id)
-        cat_ids.append(cat_id)
-        metas.append(meta)
-
         img_std = standardize_ann_img(img)
-        imgs.append(img_std)
+        if img_std is None:
+            logging.error("      !! Img failed to standardize !!   annotation failed to load.   id: %d" % id)
+            ann_fails.append(id)
+            continue
 
-    return ids, cat_ids, metas, imgs, fails
+        ann_ids.append(id)
+        ann_cat_ids.append(cat_id)
+        ann_metas.append(meta)
+        ann_imgs.append(img_std.astype(np.uint8).tolist())
+
+    return ann_ids, ann_cat_ids, ann_metas, ann_imgs, ann_fails
 
 
 # Load a single numpy array from a binary numpy .npy file.
-def load_from_numpy(folder_path: str, file_name: str):
-    file_path = os.path.join(folder_path + file_name + '.npy.gz')
+def load_from_numpy(folder_path: str, name: str, data_shape: tuple = (0)):
+    if data_shape == (0):
+        file_name = name + '.npy.gz'
+        logging.info("Loading numpy file...    %s" % file_name)
+        file_path = os.path.join(folder_path + file_name)
 
-    if not os.path.exists(folder_path):
-        logging.error("No numpy save directory! Please save a set of numpy files into folder:   %s" % folder_path)
+        if not os.path.exists(file_path):
+            logging.error("No numpy save file! Please save a numpy file:   %s" % file_path)
+            return
+
+        file = gzip.GzipFile(file_path, "r")
+        load_array = np.load(file, allow_pickle=True)  # allow_pickle=True enables pickled objects, which
+        # can be a security risk. We're using it anyways.
+
+        return load_array
+
+    else:
+        load_counter = 0
+        array_np = np.zeros(data_shape)
+        file_name = name + '0000.npy.gz'
+        logging.info("Loading numpy file with indexing...    ")
+        file_path = os.path.join(folder_path + file_name)
+
+        if not os.path.exists(file_path):
+            logging.error("No numpy save file! Please save a set of numpy files into folder:   %s" % folder_path)
+            return
+
+        while os.path.exists(file_path):
+            logging.info("    loading indexed file...    %s" % file_name)
+
+            file = gzip.GzipFile(file_path, "r")
+            load_array = np.load(file, allow_pickle=True)  # allow_pickle=True enables pickled objects, which
+            print(load_array)
+            array_np = np.concatenate((array_np, load_array))  # can be a security risk. We're using it anyways.
+
+            load_counter += 1
+            index_str = '{0:04}'.format(load_counter)
+            file_name = name + index_str + '.npy.gz'
+            file_path = os.path.join(folder_path + file_name)
+
+        return array_np
+
+
+# Reads the image file that corresponds to the given file id.
+#       Return: may be null if no image is found.
+def load_single_annotation(ann_id: int):
+    ann_path = os.path.join(DS2_DENSE_SAVE_PATH + '/annotations/%s' % ann_id + '.jpg')
+    if os.path.exists(ann_path):
+        return cv.imread(ann_path, cv.IMREAD_GRAYSCALE).astype(dtype=np.uint8)
+    else:
+        logging.error("    The annotation image does not exist!     ann_path:   %s" % ann_path)
         return
-
-    if not os.path.exists(file_path):
-        logging.error("No file to load from! Please save the numpy file into:   %s" % file_path)
-        return
-
-    file = gzip.GzipFile(file_path, "r")
-    array = np.load(file, allow_pickle=True)   # allow_pickle=True enables pickled objects, which
-                                                    # can be a security risk. We're using it anyways.
-
-    return array
 
 
 def log_reg(categories):
     logging.info("***   Logistic Classification   ***")
 
     # # LOAD the preprocessed data to a file, so we can skip preprocessing when testing the neural network.
-    train_x, train_y, test_x, test_y, val_x, val_y = load_test_train_val(False)
+    # train_x, train_y, test_x, test_y, val_x, val_y = load_test_train_val(False)
 
     # Convert labels to integers.
     label_encoder = preprocessing.LabelEncoder()
@@ -450,7 +551,7 @@ def log_reg(categories):
     return test_x, test_y, pred_y
 
 
-# Save a single numpy array into a binary .npy file.
+# Save a single numpy array into a compressed binary .npy.gz file.
 def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
     folder_path = os.path.join(folder_path)
 
@@ -483,18 +584,65 @@ def standardize_ann_img(img):
         height = STD_IMG_SHAPE[1]
 
     # logger.info("fill_img    width: %s   height: %s" % (width, height))
-    fill_img = cv.copyMakeBorder(img, (dy // 2), (dy // 2 + dy % 2), (dx // 2), (dx // 2 + dx % 2),
-                                 cv.BORDER_CONSTANT, 0)
+    fill_img = np.zeros((STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
+    cv.copyMakeBorder(img, (dy // 2), (dy // 2 + dy % 2), (dx // 2), (dx // 2 + dx % 2),
+                      cv.BORDER_CONSTANT, dst=fill_img, value=0.)
 
     if width == STD_IMG_SHAPE[0] and height == STD_IMG_SHAPE[1]:
-        return fill_img
+        if len(fill_img) != 100 or len(fill_img[0]) != 100:
+            logging.error(" !!! This image is not 100x100 !!! FILL ISSUE   id: %s     shape : (%s, %s)"
+                          % (id, len(fill_img), len(fill_img[0])))
+            return None
+        else:
+            return fill_img  # Store as 8-bit unsigned grayscale arrays to save memory.
 
     else:
         # If the image is larger than the standard shape, resize the image down.
         # INTER_AREA is the most effective interpolation for image decimation beyond 0.5.
-        std_img = cv.resize(img, STD_IMG_SHAPE, interpolation=cv.INTER_AREA)
+        std_img = cv.resize(img, STD_IMG_SHAPE, fx=0, fy=0, interpolation=cv.INTER_AREA)
 
-        return std_img
+        if len(std_img) != 100 or len(std_img[0]) != 100:
+            logging.error(" !!! This image is not 100x100 !!! RESIZE ISSUE   id: %s     shape : (%s, %s)"
+                          % (id, len(std_img), len(std_img[0])))
+            return None
+        else:
+            return std_img
+
+
+# Uploads the list of annotations that failed to load from .npy.gz file into the SQL database.
+# It is unclear why these images fail to load, but it hapens to the same ones every time.
+# By saving this list we can prevent issues with loading in batches later.
+def upload_fail_list_sql(sql_src: str):
+
+    logging.info("Loading fail list from numpy...")
+
+    fail_ids = load_from_numpy(get_np_save_path(sql_src), 'ann_fails')
+
+    fail_ids_str = ""
+    for ann_id in fail_ids:
+        ann_id_str = '(' + str(ann_id) + '), '
+        fail_ids_str += ann_id_str
+    fail_ids_str = fail_ids_str[:-2]        # Remove the last comma and space
+
+    try:
+        logging.info("Connecting to MySQL %s database..." % sql_src)
+        connection = mysql.connector.connect(user='root', password='MusicE74!', host='localhost',
+                                             db=sql_src, buffered=True)
+
+        cursor = connection.cursor()
+
+        logging.info("Uploading annotation fail lists to sql...")
+
+        cursor.execute("CREATE TABLE IF NOT EXISTS load_fails (ann_id INT NOT NULL PRIMARY KEY)")
+        cursor.execute("TRUNCATE TABLE load_fails")
+        cursor.execute("INSERT INTO load_fails VALUES %s" % fail_ids_str)
+
+        connection.commit()
+
+    finally:
+        logging.info("MySQL %s database connection closed." % sql_src)
+        connection.close()
+        cv.destroyAllWindows()
 
 
 def vote(test_x, test_y, cnn1_pred_y, cnn2_pred_y, log_reg_pred_y):
@@ -549,7 +697,7 @@ def vote(test_x, test_y, cnn1_pred_y, cnn2_pred_y, log_reg_pred_y):
 logging.info("=====  SET UP LOGGER  =====")
 
 log_path = os.path.join(ROOT_PATH + '/logs/categorize_annotations.log')
-if not os.path.exists(log_path):
+if not os.path.exists(log_path):        # Create a new empty log file if it doesnt already exist.
     with open(log_path, 'w+') as l:
         pass
 
@@ -560,40 +708,59 @@ fh.setLevel(logging.INFO)
 logger.setLevel(logging.INFO)
 logger.addHandler(fh)
 
-logging.info("=====  DATA PREPROCESSING  =====")
-
-# Import the necessary data from sql and save into a set of numpy binary files.
+# logging.info("=====  DATA PREPROCESSING - BY ALL INTO .NPZ.GZ FILES  =====")
+#
+# # Import the necessary data from sql and save into a set of numpy binary files.
+# # This strategy is not feasibly, as it prevents the randomization of annotations from one epoch to the next without
+# # loading every single numpy file. Instead, we will process in batches below.
+# logging.info(" * Converting SQL and annotation image data to numpy arrays")
 # convert_sql_to_numpy(SQL_DENSE_TEST)
 # convert_sql_to_numpy(SQL_DENSE_TRAIN)
-
-test_x = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "ann_imgs_all")
-ann_cats_all = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "ann_cats_all")
-categories = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "categories")
-
-cat_list = []
-for c in categories:
-    cat_list.append(c[0])
-
-# Encode the labels as integers
-label_encoder = preprocessing.LabelEncoder()
-labels = label_encoder.fit_transform(cat_list)
-
-# Convert y values to vectors.
-test_y = keras_utils.to_categorical(ann_cats_all, num_classes=len(cat_list))
-
-# Flatten the input data.
-test_x = test_x.reshape((test_x.shape[0], STD_IMG_SHAPE[0] * STD_IMG_SHAPE[1]))
-
-# logging.info("\n---- MODELS ----\n")
 #
-# # Run the models. test_x and test_y
+# logging.info(" * Upload the list of annotations that failed to load into SQL.")
+# upload_fail_list_sql(SQL_DENSE_TEST)
+# upload_fail_list_sql(SQL_DENSE_TRAIN)
 #
-# test_x, test_y, pred_y_cnn1 = cnn1()
+# # The full size of the training data, when loaded into 64-bit float numpy arrrays is > 18GB in RAM.
+# # This strategy simply is not feasible on a single-CPU consumer laptop. Instead we will process
+# # annotations in batches below.
+# logging.info(" * Load the full data from numpy files.")
+# categories = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "categories")
+# test_x = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "ann_imgs",
+#                          data_shape=(0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
+# test_y = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "ann_cat_ids")
+# train_x = load_from_numpy(get_np_save_path(SQL_DENSE_TRAIN), "ann_imgs",
+#                           data_shape=(0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
+# train_y = load_from_numpy(get_np_save_path(SQL_DENSE_TRAIN), "ann_cat_ids")
+
+logging.info("=====  DATA PREPROCESSING - BY BATCH FROM ANNOTATION .JPG FILES  =====")
+
+# # Flatten the input data.
+# test_x = test_x.reshape((test_x.shape[0], STD_IMG_SHAPE[0], STD_IMG_SHAPE[1])).astype('float') / 255.0
+# train_x = train_x.reshape((train_x.shape[0], STD_IMG_SHAPE[0], STD_IMG_SHAPE[1])).astype('float') / 255.0
+#
+# cat_id_list = []
+# for c in categories:
+#     cat_id_list.append(c[0])
+#
+# # Encode the labels as integers (vectors).
+# label_encoder = preprocessing.LabelEncoder()
+# labels = label_encoder.fit_transform(cat_id_list)
+#
+# # Convert y values from integers to binary matrices.
+# test_y = keras_utils.to_categorical(test_y, num_classes=len(categories))
+# # train_y = keras_utils.to_categorical(train_y, num_classes=len(categories))
+#
+# logging.info("=====   MODELS   =====")
+#
+# # Run the models.
+#
+# pred_y_cnn1 = cnn1(test_x, test_y, train_x, train_y)
 # test_x, test_y, pred_y_cnn2 = cnn2()
 # test_x, test_y, pred_y_logreg = log_reg()
 #
 # pred_final = vote(test_x, test_y, pred_y_cnn1, pred_y_cnn2, pred_y_logreg)
-#
+
 # # Convert labels to integers.
 # label_encoder = preprocessing.LabelEncoder()
 # label_encoder.fit_transform(LABELS)
@@ -605,4 +772,3 @@ test_x = test_x.reshape((test_x.shape[0], STD_IMG_SHAPE[0] * STD_IMG_SHAPE[1]))
 # plt.show()
 
 fh.close()
-
