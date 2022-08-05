@@ -86,15 +86,9 @@ ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or
 STD_IMG_SHAPE = (25, 25)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = height
 IMG_FLOAT_TYPE = np.float16
 
-CATS_SHAPE = (0, 2)
-FAILS_SHAPE = (0)
-IDS_SHAPE = (0, 2)
-IMGS_SHAPE = (0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1])
-METAS_SHAPE = (0, 3)
-
-BATCH_SIZE = 256        # For both the test and train dataset. There are 684,784 loadable annotations in the train db.
-BATCHES_PER_EPOCH = 10  #                                       There are 54,746 loadable annotations in the test db.
-VAL_BATCHES = 5
+BATCH_SIZE = 256        # For both the test and train dataset.
+BATCHES_PER_EPOCH = 10  # There are 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
+VAL_BATCHES = 5         # There are 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
 EPOCHS = 1
 
 TRAIN_SIZE = 0.6
@@ -154,27 +148,20 @@ def cnn(ids_test, num_labels: int):
     history = model.fit(train_gen, epochs=EPOCHS, steps_per_epoch=BATCHES_PER_EPOCH,
                         use_multiprocessing=True, validation_data=test_gen, validation_steps=VAL_BATCHES)
 
-    # Assess the performance of the neural network.
-    logging.info("Assessing model performance...\n")
+    # Use the model to make some predictions.
+    logging.info("Using model to make test predictions...\n")
 
-    # Print the classification report.
-    pred_y = model.predict(test_gen, steps=VAL_BATCHES, use_multiprocessing=True)
-    print(classification_report(ids_test[:, 1].argmax(axis=1), pred_y.argmax(axis=1)))
+    test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), len(ids_test), num_labels)
+    imgs_test = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
+    labels_test = np.zeros((0, num_labels))
+    for batch_counter in range(0, VAL_BATCHES):
+        imgs_batch, labels_batch = test_gen.__getitem__(0)
+        imgs_test = np.concatenate((imgs_test, imgs_batch))
+        labels_test = np.concatenate((labels_test, labels_batch))
 
-    # Plot the training loss and accuracy.
-    plt.figure()
-    plt.style.use("ggplot")
-    plt.plot(np.arange(0, EPOCHS), history.history["loss"], label="Training Loss")
-    plt.plot(np.arange(0, EPOCHS), history.history["val_loss"], label="Testing Loss")
-    plt.plot(np.arange(0, EPOCHS), history.history["accuracy"], label="Training Accuracy")
-    plt.plot(np.arange(0, EPOCHS), history.history["val_accuracy"], label="Testing Accuracy")
-    plt.title("CNN: Training and Testing Loss & Accuracy")
-    plt.xlabel("Epoch #")
-    plt.ylabel("Loss/Accuracy")
-    plt.legend()
-    plt.show()
+    label_pred = model.predict(imgs_test)
 
-    return pred_y.argmax(axis=1)
+    return history, labels_test, label_pred
 
 
 # Load a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
@@ -395,46 +382,20 @@ def load_by_img(img_id: int, connection, cursor, calc_metas = False):
 
 # Load a single numpy array from a binary numpy .npy.gz file.
 # RETURNS:  array_np    A single file as a single numpy array.
-def load_from_numpy(folder_path: str, name: str, data_shape: tuple = (0), with_indexing=False):
-    if not with_indexing:
-        file_name = name + '.npy.gz'
-        logging.info("Loading numpy file...    %s" % file_name)
-        file_path = os.path.join(folder_path + file_name)
+def load_from_numpy(folder_path: str, name: str):
+    file_name = name + '.npy.gz'
+    # logging.info("Loading numpy file...    %s" % file_name)
+    file_path = os.path.join(folder_path + file_name)
 
-        if not os.path.exists(file_path):
-            logging.error("No numpy save file! Please save a numpy file:   %s" % file_path)
-            return
+    if not os.path.exists(file_path):
+        logging.error("No numpy save file! Please save a numpy file:   %s" % file_path)
+        return
 
-        file = gzip.GzipFile(file_path, "r")
-        load_array = np.load(file, allow_pickle=True)  # allow_pickle=True enables pickled objects, which
-        # can be a security risk. We're using it anyways.
+    file = gzip.GzipFile(file_path, "r")
+    load_array = np.load(file, allow_pickle=True)  # allow_pickle=True enables pickled objects, which
+    # can be a security risk. We're using it anyways.
 
-        return load_array
-
-    else:   # with_indexing == True
-        load_counter = 0
-        array_np = np.zeros(data_shape)
-        file_name = name + '0000.npy.gz'
-        logging.info("Loading numpy file with indexing...    ")
-        file_path = os.path.join(folder_path + file_name)
-
-        if not os.path.exists(file_path):
-            logging.error("No numpy save file! Please save a set of numpy files into folder:   %s" % folder_path)
-            return
-
-        while os.path.exists(file_path):
-            logging.info("    loading indexed file...    %s" % file_name)
-
-            file = gzip.GzipFile(file_path, "r")
-            load_array = np.load(file, allow_pickle=True)  # allow_pickle=True enables pickled objects, which
-            array_np = np.concatenate((array_np, load_array))  # can be a security risk. We're using it anyways.
-
-            load_counter += 1
-            index_str = '{0:04}'.format(load_counter)
-            file_name = name + index_str + '.npy.gz'
-            file_path = os.path.join(folder_path + file_name)
-
-        return array_np
+    return load_array
 
 
 # Reads the image file that corresponds to the given file id.
@@ -540,11 +501,8 @@ def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
     np.save(file=file, arr=data)
     file.close()
 
-
-# DEPRECATED. This strategy prevented batching, causing RAM overload. This needs to be rearranged into batches matching
-#               BATCH_SIZE, but preprocessed appropriately.
-# Convert all the annotation images for a database into numpy data arrays and labels. Then save them into flat
-# files for later use.
+# Convert all the annotation images for a database into numpy data files ready for use with CNN. Annotation
+# images and corresponding labels are loaded, preprocessed, and saved, in batches as indicated by BATCH_SIZE.
 def save_sql_db_to_numpy(sql_src: str, connection, cursor, label_encoder, calc_metas=False):
 
     logging.info("=====  SAVING SQL DATABASE  %s  =====" % sql_src)
@@ -722,7 +680,7 @@ def main():
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'        # Prevents "allocation of --- exceeds %10 of free system memory
                                                     # info from tensorflow. Message not an indication of performance."
 
-    logging.info("=====  SET UP LOGGER  =====")
+    logging.info(" ** Setting Up Logger...")
 
     log_path = os.path.join(ROOT_PATH + '/logs/categorize_annotations.log')
     if not os.path.exists(log_path):  # Create a new empty log file if it doesnt already exist.
@@ -736,7 +694,7 @@ def main():
     logger.setLevel(logging.INFO)
     logger.addHandler(fh)
 
-    logging.info(" * Initializing MySQL DB connection...")
+    logging.info(" ** Initializing MySQL DB Connection...")
 
     try:
         test_connection = mysql.connector.connect(user='root', password='HelloPassword0!', host='localhost',
@@ -747,7 +705,7 @@ def main():
                                                    db=SQL_DENSE_TRAIN, buffered=True)
         train_cursor = train_connection.cursor()
 
-        # logging.info(" * Preprocessing Data...")
+        # logging.info(" ** Preprocessing Data...")
         # preprocess_data(test_connection, test_cursor, train_connection, train_cursor)
 
         # Determine the path to the folder for saved numpy files.
@@ -756,32 +714,49 @@ def main():
         path = get_np_save_path(SQL_DENSE_TEST)
         train_path = os.path.join(path)
 
-        logging.info(" * Loading numpy files from:   %s" % test_path)
+        logging.info(" ** Loading Numpy Files From:   %s" % test_path)
 
-        categories = load_from_numpy(test_path, NP_SAVE_2_CATS, data_shape=CATS_SHAPE)
-        ids_test = load_from_numpy(test_path, NP_SAVE_2_IDS_TEST, data_shape=IDS_SHAPE)
+        categories = load_from_numpy(test_path, NP_SAVE_2_CATS)
+        ids_test = load_from_numpy(test_path, NP_SAVE_2_IDS_TEST)
 
-        logging.info(" * Loading numpy files from:   %s" % train_path)
+        logging.info(" ** Loading Numpy Files From:   %s" % train_path)
 
-        ids_train = load_from_numpy(train_path, NP_SAVE_2_IDS_TRAIN, data_shape=IDS_SHAPE)
+        ids_train = load_from_numpy(train_path, NP_SAVE_2_IDS_TRAIN)
 
         # Encode the category ids as integers (vectors).
         label_encoder = preprocessing.LabelEncoder()
         labels = label_encoder.fit_transform(categories[:, 0])
 
-        logging.info(" * Running CNN categorization model...\n")
+        logging.info(" * Running CNN Categorization Model...\n")
 
-        pred_y_cnn = cnn(ids_test, len(labels))
-        # test_x, test_y, pred_y_logreg = log_reg(ann_ids_test, ann_ids_train, test_y, train_y)
+        history, labels_test, label_predict = cnn(ids_test, len(labels))\
 
         # Show the classification report and confusion matrix.
-        logging.info("=====   RESULTS AND ANALYSIS   =====")
+        logging.info(" * Producing Results and Analysis...")
+
+        print(labels_test[:, 1])
+
+        print(classification_report(labels_test[:, 1], label_predict))
+        # Plot the training loss and accuracy.
+        plt.figure()
+        plt.style.use("ggplot")
+        plt.plot(np.arange(0, EPOCHS), history.history["loss"], label="Training Loss")
+        plt.plot(np.arange(0, EPOCHS), history.history["val_loss"], label="Testing Loss")
+        plt.plot(np.arange(0, EPOCHS), history.history["accuracy"], label="Training Accuracy")
+        plt.plot(np.arange(0, EPOCHS), history.history["val_accuracy"], label="Testing Accuracy")
+        plt.title("CNN: Training and Testing Loss & Accuracy")
+        plt.xlabel("Epoch #")
+        plt.ylabel("Loss/Accuracy")
+        plt.legend()
+        plt.show()
 
         # Convert labels to integers.
-        logging.info(metrics.classification_report(ids_test[:, 1], pred_y_cnn, target_names=label_encoder.classes_))
+        logging.info(metrics.classification_report(ids_test[:, 1].argmax(axis=1),
+                                                   label_predict.argmax(axis=1),
+                                                   target_names=label_encoder.classes_))
 
         plt.figure()
-        skplt.metrics.plot_confusion_matrix(ids_test[:, 1], pred_y_cnn, title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
+        skplt.metrics.plot_confusion_matrix(ids_test[:, 1], label_predict, title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
         plt.yticks(label_encoder.fit_transform(label_encoder.classes_), label_encoder.classes_)
         plt.show()
 
