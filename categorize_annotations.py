@@ -69,10 +69,26 @@ SQL_DENSE = 'ds2_dense'
 SQL_DENSE_TEST = 'ds2_dense_test'
 SQL_DENSE_TRAIN = 'ds2_dense_train'
 
+NP_SAVE_1_CATS = 'categories_test_1'
+NP_SAVE_1_FAILS = 'fails_test_1'
+NP_SAVE_1_IDS = 'ids_test_1'
+NP_SAVE_1_IMGS = 'imgs%s_test_1'
+NP_SAVE_1_METAS = 'metas%s_test_1'
+
+NP_SAVE_2_CATS = 'categoriess_test_2'
+NP_SAVE_2_IDS = 'ids_test_2'
+NP_SAVE_2_IMGS = 'imgs_test_2'
+
 ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or 'muscima++'
 
 STD_IMG_SHAPE = (25, 25)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = height
 IMG_FLOAT_TYPE = np.float16
+
+CATS_SHAPE = (0, 2)
+FAILS_SHAPE = (0)
+IDS_SHAPE = (0, 2)
+IMGS_SHAPE = (0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1])
+METAS_SHAPE = (0, 3)
 
 ANN_LOAD_LIMIT = 20000  # The number of annotations to save at a time.
 BATCH_SIZE = 8192       # There are 684,784 annotations in the train dataset
@@ -92,7 +108,7 @@ LOG_REG_MAX_ITER = 2000
 def train_batch_generator(ids_train: ndarray, train_connection, labels, batches: int = 999999, epochs: int = 1):
     ids_train_batch = []
     epch = 0
-    bch = 0
+    bch = 1
 
     # This will shuffle the lit of all annotations, then batch out. When the end is reached it loops
     # around and resumes again at the beginning until the batch is full.
@@ -111,7 +127,9 @@ def train_batch_generator(ids_train: ndarray, train_connection, labels, batches:
                 ids_train_batch = []
 
                 if epch > epochs or bch > batches:
-                    break
+                    return
+
+    return
 
 
 # A categorization convolutional neural network. Loads and processes the annotations
@@ -119,7 +137,7 @@ def train_batch_generator(ids_train: ndarray, train_connection, labels, batches:
 def cnn(ids_test, imgs_test, ids_train, labels, train_connection):
 
     logging.info("Reshaping the test image data...\n")
-    imgs_test = imgs_test.reshape(imgs_test.shape[0], STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1) / 255.0
+    imgs_test = imgs_test.reshape((imgs_test.shape[0], STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1)) / 255.0
 
     logging.info("Building neural network...\n")
     # Build the CNN model using sequential dense layers and max pooling.
@@ -165,46 +183,54 @@ def cnn(ids_test, imgs_test, ids_train, labels, train_connection):
 
 # Load a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
 #   May return 'None' for img if the img file failed to load.
-#   Returns (height, width, orientation) for meta.
-def extract_ann_from_sql_row(row):
+#   Returns (height, width, orientation) for meta, or None if calc_meta = False.
+def extract_ann_from_sql_row(row, calc_meta: bool = False):
     id = row[0]
     cat_id = row[1]
+    meta = None
 
-    height = abs(row[4] - row[2])
-    width = abs(row[5] - row[3])
+    if calc_meta:
+        # Calculate META height, width
+        height = abs(row[4] - row[2])
+        width = abs(row[5] - row[3])
 
-    # Select the columns for o_bbox
-    start_index = 5
-    o_bbox = []
-    for i in range(0, 4):
-        o_bbox.append((row[start_index + i * 2], row[start_index + i * 2 + 1]))
+        # Calculate META orientation angle from -pi/4, pi/4.
+        # Select the columns for o_bbox
+        start_index = 5
+        o_bbox = []
+        for i in range(0, 4):
+            o_bbox.append((row[start_index + i * 2], row[start_index + i * 2 + 1]))
 
-    # Find the smallest magnitude angle from -pi/4 to pi/4. This represents the orientation of o_bbox.
-    # Calculate the tan angle for each side. Watch the divide by zero errors.
-    angles = [0, 0, 0, 0]
+        # Find the smallest magnitude angle from -pi/4 to pi/4. This represents the orientation of o_bbox.
+        # Calculate the tan angle for each side. Watch the divide by zero errors.
+        angles = [0, 0, 0, 0]
 
-    for i in range(0, 4):
-        x0 = o_bbox[i][0]
-        y0 = o_bbox[i][1]
+        for i in range(0, 4):
+            x0 = o_bbox[i][0]
+            y0 = o_bbox[i][1]
 
-        if i == 3:
-            x1 = o_bbox[0][0]  # Loop back to the first entry in the array.
-            y1 = o_bbox[0][1]  # This avoids index out of bounds error.
-        else:
-            x1 = o_bbox[i + 1][0]
-            y1 = o_bbox[i + 1][1]
+            if i == 3:
+                x1 = o_bbox[0][0]  # Loop back to the first entry in the array.
+                y1 = o_bbox[0][1]  # This avoids index out of bounds error.
+            else:
+                x1 = o_bbox[i + 1][0]
+                y1 = o_bbox[i + 1][1]
 
-        if y1 - y0 == 0:  # Avoid dividing by zero.
-            angles[i] = 999  # We arbitrarily use 999 to represent infinity.
-        elif x1 - x0 == 0:  # Avoid tan(0) where angle = 0.
-            angles[i] = 0
-        else:
-            angles[i] = math.tan((x1 - x0) / (y1 - y0))
+            if y1 - y0 == 0:  # Avoid dividing by zero.
+                angles[i] = 999  # We arbitrarily use 999 to represent infinity.
+            elif x1 - x0 == 0:  # Avoid tan(0) where angle = 0.
+                angles[i] = 0
+            else:
+                angles[i] = math.tan((x1 - x0) / (y1 - y0))
 
-    orientation = math.pi / 4
-    for i in range(0, 4):
-        if abs(angles[i] < orientation):
-            orientation = angles[i]
+        orientation = math.pi / 4
+        for i in range(0, 4):
+            if abs(angles[i] < orientation):
+                orientation = angles[i]
+
+        meta = [height, width, orientation]
+
+    # - end "if calc_meta:"
 
     # logging.info("angles: %s \n   o_bbox: %s\n   orientation: %s" % (angles, o_bbox, orientation))
 
@@ -218,46 +244,42 @@ def extract_ann_from_sql_row(row):
         logging.error(" !! Image failed to load at cv.imread() !!   in extract_ann_from_sql_row()")
         img = None
 
-    return id, cat_id, [height, width, orientation], img
+    return id, cat_id, meta, img
 
 
 # Get the save path for numpy data.
 def get_np_save_path(sql_src: str):
     if sql_src is SQL_DENSE:
-        return DS2_DENSE_SAVE_PATH + "/numpy_save/dense_%s/" % ANNOTATION_SET
+        return os.path.join(DS2_DENSE_SAVE_PATH + "/numpy_save/dense_%s/" % ANNOTATION_SET)
     elif sql_src is SQL_DENSE_TEST:
-        return DS2_DENSE_SAVE_PATH + "/numpy_save/dense_test_%s/" % ANNOTATION_SET
+        return os.path.join(DS2_DENSE_SAVE_PATH + "/numpy_save/dense_test_%s/" % ANNOTATION_SET)
     elif sql_src is SQL_DENSE_TRAIN:
-        return DS2_DENSE_SAVE_PATH + "/numpy_save/dense_train_%s/" % ANNOTATION_SET
+        return os.path.join(DS2_DENSE_SAVE_PATH + "/numpy_save/dense_train_%s/" % ANNOTATION_SET)
     else:
         logging.error("sql_src does not match any of the SQL constants.")
         return ""
 
 
 # Load a batch of annotations from sql and annotation images to numpy. Apply image preprocessing during load process.
-# RETURNS:   annotation ids,
-#           category ids (translated by label encoder),
-#           metas (for later use in modelling),
-#           imgs (standardized and downsampled to less than 64 bit arrays)
-
+# Does not calculate metas, because it must return (X, Y) for CNN.
+# RETURNS:  ann_imgs_srt        Numpy ndarray of preprocessed images for the CNN. Sorted in the order of the given ids.
+#           train_y_matr        Preprocessed labels as binary matrices.
 def load_by_batch(ids_train_batch: ndarray, train_connection, labels):
     cursor = train_connection.cursor()
 
     logging.info("Loading batch data from SQL...")
 
     train_ids_str = str(ids_train_batch[:, 0].tolist()).replace('[', '(').replace(']', ')').replace('\'', '')
-    message = "SELECT a.id, ac.cat_id, a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
-              "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
-              "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3 " \
+    message = "SELECT a.id, ac.cat_id" \
               "FROM annotations a INNER JOIN annotations_categories ac INNER JOIN categories c " \
               "ON (a.id=ac.ann_id AND ac.cat_id=c.id AND c.annotation_set=\'deepscores\')" \
               "WHERE a.id IN %s" % train_ids_str
+
     cursor.execute(message)
     train_connection.commit()
     fetch = cursor.fetchall()
 
     ann_ids = []
-    ann_metas = []
     ann_imgs = []
 
     logging.info("Extracting batch data and loading annotation image from SQL row...")
@@ -279,7 +301,6 @@ def load_by_batch(ids_train_batch: ndarray, train_connection, labels):
             img_std = img_std.tolist()
 
         ann_ids.append(id)
-        ann_metas.append(meta)
         ann_imgs.append(img_std)
 
     logging.info("Sorting the results and finishing preprocessing...")
@@ -287,12 +308,10 @@ def load_by_batch(ids_train_batch: ndarray, train_connection, labels):
     # Sort all the loaded data in the order the annotations were given. This ensures we can match
     # up the x and y values after running through the model.
 
-    ann_metas_srt = []
     ann_imgs_srt = []
     for ids in ids_train_batch:
         for j, ann_id in enumerate(ann_ids):
             if ids[0] == str(ann_id):
-                ann_metas_srt.append(ann_metas[j])
                 ann_imgs_srt.append(ann_imgs[j])
                 break
 
@@ -301,57 +320,70 @@ def load_by_batch(ids_train_batch: ndarray, train_connection, labels):
 
     # Flatten the image data
     ann_imgs_srt = np.array(ann_imgs_srt)
-    ann_imgs_srt = ann_imgs_srt.reshape(len(ann_imgs_srt), STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1) / 255.0
+    ann_imgs_srt = ann_imgs_srt.reshape((len(ann_imgs_srt), STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1)) / 255.0
 
     return ann_imgs_srt, train_y_matr
 
 
 # Get the annotation data most useful for our model. Only get the annotations for a single image at a time.
 #       Include the annotation's category which corresponds to the annotation set being used in the model.
-def load_by_img(img_id: int, connection, cursor):
+# RETURNS:  ids_l        2D List of [ann_id, cat_id] rows.
+#           metas_l      2D List of [height, width, orientation] where orientation range: (-pi/4, pi/4)
+#                           * may return empty list [] if calc_metas == False
+#           imgs_l       3D List of standardized images.
+#           fails_l      1D List of annotation ids for those that would not load.
+def load_by_img(img_id: int, connection, cursor, calc_metas = False):
     logging.info("Loading all annotations from image %s..." % img_id)
-    message = "SELECT ann.id, ann_cat.cat_id, " \
-              "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
-              "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
-              "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3 FROM annotations ann " \
-              "INNER JOIN annotations_categories ann_cat INNER JOIN categories cat ON (ann.img_id=\'%s\' " \
-              "AND ann.id=ann_cat.ann_id AND ann_cat.cat_id=cat.id AND cat.annotation_set=\'%s\')" \
-              % (img_id, ANNOTATION_SET)
+
+    if calc_metas:
+        message = "SELECT ann.i, ann_cat.cat_id, " \
+                  "a_bbox_x0, a_bbox_y0, a_bbox_x1, a_bbox_y1, " \
+                  "o_bbox_x0, o_bbox_y0, o_bbox_x1, o_bbox_y1, " \
+                  "o_bbox_x2, o_bbox_y2, o_bbox_x3, o_bbox_y3 FROM annotations ann " \
+                  "INNER JOIN annotations_categories ann_cat INNER JOIN categories cat ON (ann.img_id=\'%s\' " \
+                  "AND ann.i=ann_cat.ann_id AND ann_cat.cat_id=cat.i AND cat.annotation_set=\'%s\')" \
+                  % (img_id, ANNOTATION_SET)
+    else:   # calc_metas == False
+        message = "SELECT ann.id, ann_cat.cat_id FROM annotations ann " \
+                  "INNER JOIN annotations_categories ann_cat INNER JOIN categories cat ON (ann.img_id=\'%s\' " \
+                  "AND ann.id=ann_cat.ann_id AND ann_cat.cat_id=cat.id AND cat.annotation_set=\'%s\')" \
+                  % (img_id, ANNOTATION_SET)
     cursor.execute(message)
     connection.commit()
     fetch = cursor.fetchall()
 
-    ann_cat_ids = []
-    ann_metas = []
-    ann_imgs = []
-    ann_fails = []
+    ids_l = []        # 2D list with each row [ann_id, cat_id]
+    metas_l = []
+    ann_imgs_l = []
+    ann_fails_l = []
 
     # Load & process the data for every annotation on this image.
     for row in fetch:
 
-        id, cat_id, meta, img = extract_ann_from_sql_row(row)
+        i, cat_id, meta, img = extract_ann_from_sql_row(row)
 
         if img is None:  # The image file may have failed to load.
-            logging.error("      !! Img read failed !!   annotation failed to load.   id: %d" % id)
-            ann_fails.append(id)
+            logging.error("      !! Img read failed !!   annotation failed to load.   i: %d" % i)
+            ann_fails_l.append(i)
             continue
 
         img_std = standardize_ann_img(img)
         if img_std is None:
-            logging.error("      !! Img failed to standardize !!   annotation failed to load.   id: %d" % id)
-            ann_fails.append(id)
+            logging.error("      !! Img failed to standardize !!   annotation failed to load.   i: %d" % i)
+            ann_fails_l.append(i)
             continue
         else:
             img_std = img_std.astype(IMG_FLOAT_TYPE).tolist()
 
-        ann_cat_ids.append([id, cat_id])
-        ann_metas.append(meta)
-        ann_imgs.append(img_std)
+        ids_l.append([i, cat_id])
+        metas_l.append(meta)
+        ann_imgs_l.append(img_std)
 
-    return ann_cat_ids, ann_metas, ann_imgs, ann_fails
+    return ids_l, metas_l, ann_imgs_l, ann_fails_l
 
 
-# Load a single numpy array from a binary numpy .npy file.
+# Load a single numpy array from a binary numpy .npy.gz file.
+# RETURNS:  array_np    A single file as a single numpy array.
 def load_from_numpy(folder_path: str, name: str, data_shape: tuple = (0)):
     if data_shape == (0):
         file_name = name + '.npy.gz'
@@ -445,7 +477,9 @@ def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
     file.close()
 
 
-# Convert all the pixelwise annotations for a database into numpy data arrays and labels. Then save them into flat
+# DEPRECATED. This strategy prevented batching, causing RAM overload. This needs to be rearranged into batches matching
+#               BATCH_SIZE, but preprocessed appropriately.
+# Convert all the annotation images for a database into numpy data arrays and labels. Then save them into flat
 # files for later use.
 def save_sql_db_to_numpy(sql_src: str):
     # Determine the path to the folder for saving numpy files.
@@ -474,8 +508,10 @@ def save_sql_db_to_numpy(sql_src: str):
         for row in fetch:
             categories.append(row)
 
+        # NUMPY SAVE POINT # 1.A to speed up loading of data in future development.
+
         logging.info("   saving categories")
-        save_to_numpy(np.array(list(categories)), save_path, "categories")
+        save_to_numpy(np.array(list(categories)), save_path, NP_SAVE_1_CATS)
 
         # Obtain a list of every source image referred to by this database.into
         logging.info("Loading images list...")
@@ -493,11 +529,10 @@ def save_sql_db_to_numpy(sql_src: str):
         # Load the pixelwise annotation data from jpg files.
         # Consolidate the annotation data into numpy arrays, then save in batches to prevent RAM overload.
 
-        ann_ids_by_img = np.zeros(0)
-        ann_cat_ids_by_img = np.zeros(0)
-        ann_metas_by_img = np.zeros((0, 3))
-        ann_imgs_by_img = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
-        ann_fails_by_img = np.zeros(0)
+        ids_np = np.zeros(IDS_SHAPE)
+        metas_np = np.zeros(METAS_SHAPE)
+        imgs_np = np.zeros(IMGS_SHAPE)
+        fails_np = np.zeros(FAILS_SHAPE)
 
         save_counter = 0
         imgs_loaded = 0
@@ -510,15 +545,15 @@ def save_sql_db_to_numpy(sql_src: str):
         for img_id in img_ids:
             logging.info("Loading annotations from image %s" % img_id)
 
-            ann_ids, ann_cat_ids, ann_metas, ann_imgs, ann_fails = load_by_img(img_id, connection, cursor)
+            ids_batch, metas_batch, imgs_batch, fails_batch \
+                = load_by_img(img_id, connection, cursor)
 
             # Even though concatenate here is slow (especially when the arrays get larger), we use numpy
             # to prevent memory errors. Large Python lists of ints and floats use huge amounts of RAM.
-            ann_ids_by_img = np.concatenate((ann_ids_by_img, ann_ids))
-            ann_cat_ids_by_img = np.concatenate((ann_cat_ids_by_img, ann_cat_ids))
-            ann_metas_by_img = np.concatenate((ann_metas_by_img, ann_metas))
-            ann_imgs_by_img = np.concatenate((ann_imgs_by_img, ann_imgs))
-            ann_fails_by_img = np.concatenate((ann_fails_by_img, ann_fails))
+            ids_np = np.concatenate((ids_np, ids_batch))
+            metas_np = np.concatenate((metas_np, metas_batch))
+            imgs_np = np.concatenate((imgs_np, imgs_batch))
+            fails_np = np.concatenate((fails_np, fails_batch))
 
             imgs_loaded += 1
             time_now = datetime.now()
@@ -529,33 +564,36 @@ def save_sql_db_to_numpy(sql_src: str):
             load_all_dur = load_all_diff * (tot_imgs / imgs_loaded)
 
             logging.info("   imgs loaded: (%d of %d)   anns loaded: %d   ~remaining time: %d min   time to load: %d s"
-                         % (imgs_loaded, tot_imgs, len(ann_metas_by_img),
+                         % (imgs_loaded, tot_imgs, len(metas_np),
                             (load_all_dur - load_dur) / 60, load_img_diff))
 
             # The meta and imgs arrays could possibly become too large, causing a RAM exceeded error.
             # We batch save those two arrays. The rest are saved after all annotations have been loaded.
             # Also save the final batch regardless.
 
-            if len(ann_metas_by_img) > ANN_LOAD_LIMIT or imgs_loaded == tot_imgs:
+            if len(metas_np) > ANN_LOAD_LIMIT or imgs_loaded == tot_imgs:
                 index = '{0:04}'.format(save_counter)
                 logging.info("Load limit reached. Batch saving numpy files with index: %s" % index)
 
-                save_to_numpy(ann_metas_by_img, save_path, "ann_metas%s" % index)
-                save_to_numpy(ann_imgs_by_img, save_path, "ann_imgs%s" % index)
+                # NUMPY SAVE POINT # 1.B to speed up loading of data in future development.
 
-                ann_metas_by_img = np.zeros((0, 3))
-                ann_imgs_by_img = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
+                save_to_numpy(metas_np, save_path,  NP_SAVE_1_METAS % index)
+                save_to_numpy(imgs_np, save_path, NP_SAVE_1_IMGS % index)
+
+                ann_metas_by_img = np.zeros(METAS_SHAPE)
+                ann_imgs_by_img = np.zeros(IMGS_SHAPE)
                 save_counter += 1
 
                 logging.info("   numpy files saved and arrays reset")
 
             gc.collect()  # Ask the garbage collector to remove unreferenced data ASAP. Just in case.
 
-        # After all the annotations are loaded and batch-saved, save the remaining data to .npy
+        # After all the annotations are loaded and batch-saved, save the remaining data to .npy.gz
 
-        save_to_numpy(ann_ids_by_img, save_path, "ann_ids")
-        save_to_numpy(ann_cat_ids_by_img, save_path, "ann_cat_ids")
-        save_to_numpy(ann_fails_by_img, save_path, "ann_fails")
+        # NUMPY SAVE POINT # 1.C to speed up loading of data in future development.
+
+        save_to_numpy(ids_np, save_path, NP_SAVE_1_IDS)
+        save_to_numpy(fails_np, save_path, NP_SAVE_1_FAILS)
 
         logging.info("Annotations data saved to numpy files.")
 
@@ -584,7 +622,7 @@ def standardize_ann_img(img: ndarray):
         height = STD_IMG_SHAPE[1]
 
     # logger.info("fill_img    width: %s   height: %s" % (width, height))
-    fill_img = np.zeros((STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
+    fill_img = np.zeros(STD_IMG_SHAPE)
     cv.copyMakeBorder(img, (dy // 2), (dy // 2 + dy % 2), (dx // 2), (dx // 2 + dx % 2),
                       cv.BORDER_CONSTANT, dst=fill_img, value=0.)
 
@@ -726,8 +764,8 @@ def main():
         fetch = test_cursor.fetchall()
 
         # Load all the TEST annotation data that can be imported.
-        imgs_test = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
-        ids_test = np.zeros((0, 2))
+        imgs_test = np.zeros(IMGS_SHAPE)
+        ids_test = np.zeros(IDS_SHAPE)
         for row in fetch:
             img_id = row[0]
             ann_cat_ids, metas, imgs, fails = load_by_img(img_id, test_connection, test_cursor)
@@ -754,6 +792,22 @@ def main():
         ids_test[:, 1] = ids_enc_test
         ids_enc_train = label_encoder.transform(ids_train[:, 1])
         ids_train[:, 1] = ids_enc_train
+
+        # NUMPY SAVE POINT # 2 to speed up loading of test data in future development.
+
+        # Determine the path to the folder for saving numpy files.
+        save_path = get_np_save_path(SQL_DENSE_TEST)
+        folder_path = os.path.join(save_path)
+
+        logging.info("Saving to numpy files at:   %s" % folder_path)
+
+        save_to_numpy(categories, folder_path, NP_SAVE_2_CATS)
+        save_to_numpy(imgs_test, folder_path, NP_SAVE_2_IMGS)
+        save_to_numpy(ids_test, folder_path, NP_SAVE_2_IDS)
+
+        categories = load_from_numpy(folder_path, NP_SAVE_2_CATS, data_shape=CATS_SHAPE)
+        imgs_test = load_from_numpy(folder_path, NP_SAVE_2_IMGS, data_shape=IMGS_SHAPE)
+        ids_test = load_from_numpy(folder_path, NP_SAVE_2_IDS, data_shape=IDS_SHAPE)
 
         # Run the models.
         logging.info("=====   MODELS   =====")
