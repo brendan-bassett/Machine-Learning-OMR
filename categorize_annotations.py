@@ -69,15 +69,17 @@ SQL_DENSE = 'ds2_dense'
 SQL_DENSE_TEST = 'ds2_dense_test'
 SQL_DENSE_TRAIN = 'ds2_dense_train'
 
-NP_SAVE_1_CATS = 'categories_test_1'
-NP_SAVE_1_FAILS = 'fails_test_1'
-NP_SAVE_1_IDS = 'ids_test_1'
-NP_SAVE_1_IMGS = 'imgs%s_test_1'
-NP_SAVE_1_METAS = 'metas%s_test_1'
+NP_SAVE_1_CATS = 'categories_1'
+NP_SAVE_1_FAILS = 'fails_1'
+NP_SAVE_1_IDS = 'ids_1'
+NP_SAVE_1_IMGS = 'imgs%s_1'
+NP_SAVE_1_LBL_MATR = 'lbl_matr%s_1'
+NP_SAVE_1_METAS = 'metas%s_1'
 
-NP_SAVE_2_CATS = 'categoriess_test_2'
-NP_SAVE_2_IDS = 'ids_test_2'
-NP_SAVE_2_IMGS = 'imgs_test_2'
+NP_SAVE_2_CATS = 'categoriess_2'
+NP_SAVE_2_IDS_TEST = 'ids_test_2'
+NP_SAVE_2_IDS_TRAIN = 'ids_train_2'
+NP_SAVE_2_IMGS_TEST = 'imgs_test_2'
 
 ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or 'muscima++'
 
@@ -91,7 +93,7 @@ IMGS_SHAPE = (0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1])
 METAS_SHAPE = (0, 3)
 
 ANN_LOAD_LIMIT = 20000  # The number of annotations to save at a time.
-BATCH_SIZE = 8192       # There are 684,784 annotations in the train dataset
+BATCH_SIZE = 256        # Only affects train dataset. There are 684,784 annotations in the train dataset.
 BATCHES = 2
 EPOCHS = 1
 
@@ -102,10 +104,14 @@ VALIDATION_SIZE = 0.1
 LOG_REG_MAX_ITER = 2000
 
 
+# ============== CLASSES ===========================================================================================
+
+
+
 # ============== FUNCTIONS =========================================================================================
 
 # Generate batches of annotations from a randomized list of ids from the training database.
-def train_batch_generator(ids_train: ndarray, train_connection, labels, batches: int = 999999, epochs: int = 1):
+def train_batch_generator_sql(ids_train: ndarray, train_connection, labels, batches: int = 999999, epochs: int = 1):
     ids_train_batch = []
     epch = 0
     bch = 1
@@ -121,13 +127,16 @@ def train_batch_generator(ids_train: ndarray, train_connection, labels, batches:
 
             if len(ids_train_batch) == BATCH_SIZE:
                 ids_train_batch = np.array(ids_train_batch)
-                yield load_by_batch(ids_train_batch, train_connection, labels)
+                yield load_batch_from_sql(ids_train_batch, train_connection, len(labels))
 
                 bch += 1
                 ids_train_batch = []
 
                 if epch > epochs or bch > batches:
-                    return
+                    logging.info("End train generator.   epch: %s   bch: %s" % (epch, bch))
+                    break
+
+        break
 
     return
 
@@ -135,9 +144,6 @@ def train_batch_generator(ids_train: ndarray, train_connection, labels, batches:
 # A categorization convolutional neural network. Loads and processes the annotations
 # for the test and train databases.
 def cnn(ids_test, imgs_test, ids_train, labels, train_connection):
-
-    logging.info("Reshaping the test image data...\n")
-    imgs_test = imgs_test.reshape((imgs_test.shape[0], STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1)) / 255.0
 
     logging.info("Building neural network...\n")
     # Build the CNN model using sequential dense layers and max pooling.
@@ -155,7 +161,7 @@ def cnn(ids_test, imgs_test, ids_train, labels, train_connection):
 
     sgd = tensorflow.keras.optimizers.SGD(learning_rate=0.01, decay=1e-6, momentum=0.9, nesterov=True)
     model.compile(loss="categorical_crossentropy", optimizer=sgd, metrics=["accuracy"])
-    history = model.fit(train_batch_generator(ids_train, train_connection, labels, batches=BATCHES, epochs=EPOCHS),
+    history = model.fit(train_batch_generator_sql(ids_train, train_connection, labels, batches=BATCHES, epochs=EPOCHS),
                         validation_data=(imgs_test, ids_test[:, 1]))
 
     # Assess the performance of the neural network.
@@ -172,7 +178,7 @@ def cnn(ids_test, imgs_test, ids_train, labels, train_connection):
     plt.plot(np.arange(0, EPOCHS), history.history["val_loss"], label="Testing Loss")
     plt.plot(np.arange(0, EPOCHS), history.history["accuracy"], label="Training Accuracy")
     plt.plot(np.arange(0, EPOCHS), history.history["val_accuracy"], label="Testing Accuracy")
-    plt.title("CNN1: Training and Testing Loss & Accuracy")
+    plt.title("CNN: Training and Testing Loss & Accuracy")
     plt.xlabel("Epoch #")
     plt.ylabel("Loss/Accuracy")
     plt.legend()
@@ -264,23 +270,38 @@ def get_np_save_path(sql_src: str):
 # Does not calculate metas, because it must return (X, Y) for CNN.
 # RETURNS:  ann_imgs_srt        Numpy ndarray of preprocessed images for the CNN. Sorted in the order of the given ids.
 #           train_y_matr        Preprocessed labels as binary matrices.
-def load_by_batch(ids_train_batch: ndarray, train_connection, labels):
-    cursor = train_connection.cursor()
+def load_batch_from_numpy(folder_path, batch_number: int, ):
+
+    logging.info("Loading batch %s data from numpy file..." % batch_number)
+
+    batch_number_str = f'{batch_number:04d}'
+    img_srt_np = load_from_numpy(folder_path, NP_SAVE_1_IMGS % batch_number_str)
+    label_matr_np = load_from_numpy(folder_path, NP_SAVE_1_LBL_MATR % batch_number_str)
+
+    return img_srt_np, label_matr_np
+
+
+# Load a batch of annotations from sql and annotation images to numpy. Apply image preprocessing during load process.
+# Does not calculate metas, because it must return (X, Y) for CNN.
+# RETURNS:  ann_imgs_srt        Numpy ndarray of preprocessed images for the CNN. Sorted in the order of the given ids.
+#           train_y_matr        Preprocessed labels as binary matrices.
+def load_batch_from_sql(ids_batch: ndarray, connection, num_categories: int):
+    cursor = connection.cursor()
 
     logging.info("Loading batch data from SQL...")
 
-    train_ids_str = str(ids_train_batch[:, 0].tolist()).replace('[', '(').replace(']', ')').replace('\'', '')
-    message = "SELECT a.id, ac.cat_id" \
+    ids_str = str(ids_batch[:, 0].tolist()).replace('[', '(').replace(']', ')').replace('\'', '')
+    message = "SELECT a.id, ac.cat_id " \
               "FROM annotations a INNER JOIN annotations_categories ac INNER JOIN categories c " \
               "ON (a.id=ac.ann_id AND ac.cat_id=c.id AND c.annotation_set=\'deepscores\')" \
-              "WHERE a.id IN %s" % train_ids_str
+              "WHERE a.id IN %s" % ids_str
 
     cursor.execute(message)
-    train_connection.commit()
+    connection.commit()
     fetch = cursor.fetchall()
 
-    ann_ids = []
-    ann_imgs = []
+    ids_l = []
+    imgs_l = []
 
     logging.info("Extracting batch data and loading annotation image from SQL row...")
 
@@ -300,29 +321,29 @@ def load_by_batch(ids_train_batch: ndarray, train_connection, labels):
         else:
             img_std = img_std.tolist()
 
-        ann_ids.append(id)
-        ann_imgs.append(img_std)
+        ids_l.append(id)
+        imgs_l.append(img_std)
 
     logging.info("Sorting the results and finishing preprocessing...")
 
     # Sort all the loaded data in the order the annotations were given. This ensures we can match
     # up the x and y values after running through the model.
 
-    ann_imgs_srt = []
-    for ids in ids_train_batch:
-        for j, ann_id in enumerate(ann_ids):
+    imgs_l_srt = []
+    for ids in ids_batch:
+        for j, ann_id in enumerate(ids_l):
             if ids[0] == str(ann_id):
-                ann_imgs_srt.append(ann_imgs[j])
+                imgs_l_srt.append(imgs_l[j])
                 break
 
     # Convert y values from integers to binary matrices.
-    train_y_matr = keras_utils.to_categorical(ids_train_batch[:, 1], num_classes=len(labels))
+    label_matr_np = keras_utils.to_categorical(ids_batch[:, 1], num_classes=num_categories)
 
     # Flatten the image data
-    ann_imgs_srt = np.array(ann_imgs_srt)
-    ann_imgs_srt = ann_imgs_srt.reshape((len(ann_imgs_srt), STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1)) / 255.0
+    img_srt_np = np.array(imgs_l_srt)
+    img_srt_np = img_srt_np.reshape((len(img_srt_np), STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1)) / 255.0
 
-    return ann_imgs_srt, train_y_matr
+    return img_srt_np, label_matr_np
 
 
 # Get the annotation data most useful for our model. Only get the annotations for a single image at a time.
@@ -384,8 +405,8 @@ def load_by_img(img_id: int, connection, cursor, calc_metas = False):
 
 # Load a single numpy array from a binary numpy .npy.gz file.
 # RETURNS:  array_np    A single file as a single numpy array.
-def load_from_numpy(folder_path: str, name: str, data_shape: tuple = (0)):
-    if data_shape == (0):
+def load_from_numpy(folder_path: str, name: str, data_shape: tuple = (0), with_indexing=False):
+    if not with_indexing:
         file_name = name + '.npy.gz'
         logging.info("Loading numpy file...    %s" % file_name)
         file_path = os.path.join(folder_path + file_name)
@@ -400,7 +421,7 @@ def load_from_numpy(folder_path: str, name: str, data_shape: tuple = (0)):
 
         return load_array
 
-    else:
+    else:   # with_indexing == True
         load_counter = 0
         array_np = np.zeros(data_shape)
         file_name = name + '0000.npy.gz'
@@ -437,39 +458,13 @@ def load_single_annotation(ann_id: int):
         return
 
 
-def log_reg(categories):
-    logging.info("***   Logistic Classification   ***")
-
-    # # LOAD the preprocessed data to a file, so we can skip preprocessing when testing the neural network.
-    train_x, train_y, test_x, test_y, val_x, val_y = load_test_train_val(False)
-
-    # Convert labels to integers.
-    label_encoder = preprocessing.LabelEncoder()
-    label_encoder.fit_transform(categories)
-
-    # Fit the model with training data and test it after fitting.
-    # X data must be standardized so logistic regression can complete in < 1000 iterations.
-    regression = linear_model.LogisticRegression(max_iter=LOG_REG_MAX_ITER)
-    regression.fit(train_x, train_y)
-    pred_y = regression.predict(test_x)
-
-    logging.info(metrics.classification_report(test_y, pred_y, target_names=label_encoder.classes_))
-
-    plt.figure()
-    skplt.metrics.plot_confusion_matrix(test_y, pred_y, title=("Logistic Regression Confusion Matrix"), cmap="Reds")
-    plt.yticks(label_encoder.fit_transform(label_encoder.classes_), label_encoder.classes_)
-    plt.show()
-
-    return test_x, test_y, pred_y
-
-
 # Save a single numpy array into a compressed binary .npy.gz file.
 def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
     folder_path = os.path.join(folder_path)
 
     if not os.path.exists(folder_path):
         os.mkdir(folder_path)
-        logging.log("No numpy_save subdirectory for this database. Created new one:  %s" % folder_path)
+        logging.info("No numpy_save subdirectory for this database. Created new one:  %s" % folder_path)
 
     file_path = os.path.join(folder_path + file_name + ".npy.gz")
     file = gzip.GzipFile(file_path, "w")
@@ -481,7 +476,9 @@ def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
 #               BATCH_SIZE, but preprocessed appropriately.
 # Convert all the annotation images for a database into numpy data arrays and labels. Then save them into flat
 # files for later use.
-def save_sql_db_to_numpy(sql_src: str):
+def save_sql_db_to_numpy(sql_src: str, connection, cursor, label_encoder, calc_metas=False):
+    logging.info("Saving %s sql database to numpy .npy.gz files. " % sql_src)
+
     # Determine the path to the folder for saving numpy files.
     save_path = get_np_save_path(sql_src)
     folder_path = os.path.join(save_path)
@@ -490,117 +487,90 @@ def save_sql_db_to_numpy(sql_src: str):
         os.mkdir(folder_path)
         logging.info("No numpy_save directory. Created new one:  %s" % str(folder_path))
 
-    logging.info("Initializing MySQL %s DB connection..." % sql_src)
-    try:
-        connection = mysql.connector.connect(user='root', password='HelloPassword0!', host='localhost',
-                                             db=sql_src, buffered=True)
-        cursor = connection.cursor()
+    # Load the list of possible categories for the chosen annotation set.
+    logging.info("Loading categories...")
 
-        # Load the list of possible categories for the chosen annotation set.
-        logging.info("Loading categories...")
+    message = "SELECT id, `name` FROM categories WHERE annotation_set = \'%s\'" % ANNOTATION_SET
+    cursor.execute(message)
+    connection.commit()
+    fetch = cursor.fetchall()
 
-        message = "SELECT id, `name` FROM categories WHERE annotation_set = \'%s\'" % ANNOTATION_SET
-        cursor.execute(message)
-        connection.commit()
-        fetch = cursor.fetchall()
+    categories = []
+    for row in fetch:
+        categories.append(row)
 
-        categories = []
-        for row in fetch:
-            categories.append(row)
+    # NUMPY SAVE POINT # 1.A to speed up loading of data in future development.
+    logging.info("NUMPY SAVE 1.A - categories")
 
-        # NUMPY SAVE POINT # 1.A to speed up loading of data in future development.
+    save_to_numpy(np.array(list(categories)), save_path, NP_SAVE_1_CATS)
 
-        logging.info("   saving categories")
-        save_to_numpy(np.array(list(categories)), save_path, NP_SAVE_1_CATS)
+    logging.info("Loading all annotation ids with corresponding category id...")
+    # Load the list of annotation ids in this database.
+    message = "SELECT a.id, c.id FROM annotations a INNER JOIN annotations_categories ac INNER JOIN categories c " \
+              "ON (a.id = ac.ann_id AND ac.cat_id = c.id AND c.annotation_set = \'%s\') " \
+              "WHERE a.id NOT IN (SELECT lf.ann_id FROM load_fails lf)" % ANNOTATION_SET
+    cursor.execute(message)
+    connection.commit()
+    fetch = cursor.fetchall()
 
-        # Obtain a list of every source image referred to by this database.into
-        logging.info("Loading images list...")
-        message = "SELECT id FROM images"
-        cursor.execute(message)
-        connection.commit()
-        fetch = cursor.fetchall()
+    ids_l = []
+    for row in fetch:
+        ids_l.append([row[0], row[1]])
+    ids_rdm = np.array(ids_l)
 
-        img_ids = []
-        for row in fetch:
-            img_ids.append(row[0])
-        logging.info("   img_ids: %s" % img_ids)
+    # We need to randomize the order.
+    np.random.shuffle(ids_rdm)
 
-        # Load the annotation data from the SQL database.
-        # Load the pixelwise annotation data from jpg files.
-        # Consolidate the annotation data into numpy arrays, then save in batches to prevent RAM overload.
+    # NUMPY SAVE POINT # 1.B to speed up loading of data in future development.
+    logging.info("NUMPY SAVE 1.B - annotation, category id pairs")
 
-        ids_np = np.zeros(IDS_SHAPE)
-        metas_np = np.zeros(METAS_SHAPE)
-        imgs_np = np.zeros(IMGS_SHAPE)
-        fails_np = np.zeros(FAILS_SHAPE)
+    save_to_numpy(np.array(list(ids_rdm)), save_path, NP_SAVE_1_IDS)
 
-        save_counter = 0
-        imgs_loaded = 0
-        tot_imgs = len(img_ids)
-        start_time = datetime.now()
-        img_start_time = start_time
+    # Encode the category ids to integer labels.
+    ids_enc_test = label_encoder.transform(ids_rdm[:, 1])
+    ids_rdm[:, 1] = ids_enc_test
 
-        logging.info("Loading annotations...")
+    # Load the annotation data from the SQL database.
+    # Load the pixelwise annotation data from jpg files.
+    # Consolidate the annotation data into numpy arrays, then save in batches to prevent RAM overload.
 
-        for img_id in img_ids:
-            logging.info("Loading annotations from image %s" % img_id)
+    logging.info("Loading annotations...")
 
-            ids_batch, metas_batch, imgs_batch, fails_batch \
-                = load_by_img(img_id, connection, cursor)
+    batch_index = 0
+    batches_loaded = 0
+    tot_batches = len(ids_rdm) // BATCH_SIZE
+    start_time = datetime.now()
+    img_start_time = start_time
 
-            # Even though concatenate here is slow (especially when the arrays get larger), we use numpy
-            # to prevent memory errors. Large Python lists of ints and floats use huge amounts of RAM.
-            ids_np = np.concatenate((ids_np, ids_batch))
-            metas_np = np.concatenate((metas_np, metas_batch))
-            imgs_np = np.concatenate((imgs_np, imgs_batch))
-            fails_np = np.concatenate((fails_np, fails_batch))
+    for batch_counter in range(0, tot_batches):
+        logging.info("Loading annotations in batches.  (%d of %d)" % (batch_counter + 1, tot_batches))
 
-            imgs_loaded += 1
-            time_now = datetime.now()
-            load_img_diff = (time_now - img_start_time).total_seconds()
-            load_all_diff = (time_now - start_time).total_seconds()
-            load_dur = (time_now - start_time).total_seconds()
-            img_start_time = time_now  # This must be after load_all_diff, load_all_diff, and load_dur
-            load_all_dur = load_all_diff * (tot_imgs / imgs_loaded)
+        ids_batch = []
+        for i in range(0, BATCH_SIZE):
+            ids_batch.append([ids_rdm[batch_index + i][0], ids_rdm[batch_index + i][1]])
+        batch_index += BATCH_SIZE
+        ids_batch = np.array(ids_batch)
 
-            logging.info("   imgs loaded: (%d of %d)   anns loaded: %d   ~remaining time: %d min   time to load: %d s"
-                         % (imgs_loaded, tot_imgs, len(metas_np),
-                            (load_all_dur - load_dur) / 60, load_img_diff))
+        img_srt_np, label_matr_np = load_batch_from_sql(ids_batch, connection, len(categories))
 
-            # The meta and imgs arrays could possibly become too large, causing a RAM exceeded error.
-            # We batch save those two arrays. The rest are saved after all annotations have been loaded.
-            # Also save the final batch regardless.
+        batches_loaded += 1
+        time_now = datetime.now()
+        load_img_diff = (time_now - img_start_time).total_seconds()
+        load_all_diff = (time_now - start_time).total_seconds()
+        load_dur = (time_now - start_time).total_seconds()
+        img_start_time = time_now  # This must be after load_all_diff, load_all_diff, and load_dur
+        load_all_dur = load_all_diff * (tot_batches / batches_loaded)
 
-            if len(metas_np) > ANN_LOAD_LIMIT or imgs_loaded == tot_imgs:
-                index = '{0:04}'.format(save_counter)
-                logging.info("Load limit reached. Batch saving numpy files with index: %s" % index)
-
-                # NUMPY SAVE POINT # 1.B to speed up loading of data in future development.
-
-                save_to_numpy(metas_np, save_path,  NP_SAVE_1_METAS % index)
-                save_to_numpy(imgs_np, save_path, NP_SAVE_1_IMGS % index)
-
-                ann_metas_by_img = np.zeros(METAS_SHAPE)
-                ann_imgs_by_img = np.zeros(IMGS_SHAPE)
-                save_counter += 1
-
-                logging.info("   numpy files saved and arrays reset")
-
-            gc.collect()  # Ask the garbage collector to remove unreferenced data ASAP. Just in case.
-
-        # After all the annotations are loaded and batch-saved, save the remaining data to .npy.gz
+        logging.info("     ~remaining time: %d min   time to load: %d s"
+                     % ((load_all_dur - load_dur) / 60, load_img_diff))
 
         # NUMPY SAVE POINT # 1.C to speed up loading of data in future development.
+        logging.info("NUMPY SAVE 1.C - preprocessed images and labels")
 
-        save_to_numpy(ids_np, save_path, NP_SAVE_1_IDS)
-        save_to_numpy(fails_np, save_path, NP_SAVE_1_FAILS)
-
-        logging.info("Annotations data saved to numpy files.")
-
-    finally:
-        logging.info("Closed MySQL %s database connection." % sql_src)
-        connection.close()
-        cv.destroyAllWindows()
+        batch_counter_str = f'{batch_counter:04d}'
+        # save_to_numpy(metas_np, save_path,  NP_SAVE_1_METAS % batch_counter)
+        save_to_numpy(img_srt_np, save_path, NP_SAVE_1_IMGS % batch_counter_str)
+        save_to_numpy(label_matr_np, save_path, NP_SAVE_1_LBL_MATR % batch_counter_str)
 
 
 # Make a single annotation into a standard size of image. Images too large will be resized down.
@@ -685,6 +655,10 @@ def upload_fail_list_sql(sql_src: str):
 
 
 def main():
+
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'        # Prevents "allocation of --- exceeds %10 of free system memory
+                                                    # info from tensorflow. Message not an indication of performance."
+
     logging.info("=====  SET UP LOGGER  =====")
 
     log_path = os.path.join(ROOT_PATH + '/logs/categorize_annotations.log')
@@ -698,32 +672,6 @@ def main():
     fh.setLevel(logging.INFO)
     logger.setLevel(logging.INFO)
     logger.addHandler(fh)
-
-    # logging.info("=====  DATA PREPROCESSING - BY ALL INTO .NPZ.GZ FILES  =====")
-    #
-    # # Import the necessary data from sql and save into a set of numpy binary files.
-    # # This strategy is not feasibly, as it prevents the randomization of annotations from one epoch
-    # # to the next without loading every single numpy file. Instead, we will process in batches below.
-    #
-    # logging.info(" * Converting SQL and annotation image data to numpy arrays")
-    # convert_sql_to_numpy(SQL_DENSE_TEST)
-    # convert_sql_to_numpy(SQL_DENSE_TRAIN)
-    #
-    # logging.info(" * Upload the list of annotations that failed to load into SQL.")
-    # upload_fail_list_sql(SQL_DENSE_TEST)
-    # upload_fail_list_sql(SQL_DENSE_TRAIN)
-    #
-    # # The full size of the training data, when loaded into 64-bit float numpy arrrays is > 18GB in RAM.
-    # # This strategy simply is not feasible on a single-CPU consumer laptop. Instead we will process
-    # # annotations in batches below.
-    # logging.info(" * Load the full data from numpy files.")
-    # categories = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "categories")
-    # test_x = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "ann_imgs",
-    #                          data_shape=(0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
-    # test_y = load_from_numpy(get_np_save_path(SQL_DENSE_TEST), "ann_cat_ids")
-    # train_x = load_from_numpy(get_np_save_path(SQL_DENSE_TRAIN), "ann_imgs",
-    #                           data_shape=(0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1]))
-    # train_y = load_from_numpy(get_np_save_path(SQL_DENSE_TRAIN), "ann_cat_ids")
 
     logging.info("=====  DATA PREPROCESSING - BY BATCH FROM ANNOTATION .JPG FILES  =====")
 
@@ -772,6 +720,9 @@ def main():
             ids_test = np.concatenate((ids_test, ann_cat_ids))
             imgs_test = np.concatenate((imgs_test, imgs), dtype=IMG_FLOAT_TYPE)
 
+        logging.info("Reshaping the test image data...\n")
+        imgs_test = imgs_test.reshape((imgs_test.shape[0], STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1)) / 255.0
+
         # Load the list of ids and category ids for every ANNOTATION that is loadable from the TRAIN dataset.
         logging.info(" * Loading ids for every ANNOTATION in TRAIN database...")
 
@@ -796,37 +747,52 @@ def main():
         # NUMPY SAVE POINT # 2 to speed up loading of test data in future development.
 
         # Determine the path to the folder for saving numpy files.
-        save_path = get_np_save_path(SQL_DENSE_TEST)
-        folder_path = os.path.join(save_path)
+        path = get_np_save_path(SQL_DENSE_TEST)
+        test_path = os.path.join(path)
+        path = get_np_save_path(SQL_DENSE_TEST)
+        train_path = os.path.join(path)
 
-        logging.info("Saving to numpy files at:   %s" % folder_path)
+        logging.info(" * NP SAVE 2 - Saving TEST data to numpy files at:   %s" % test_path)
 
-        save_to_numpy(categories, folder_path, NP_SAVE_2_CATS)
-        save_to_numpy(imgs_test, folder_path, NP_SAVE_2_IMGS)
-        save_to_numpy(ids_test, folder_path, NP_SAVE_2_IDS)
+        save_to_numpy(categories, test_path, NP_SAVE_2_CATS)
+        save_to_numpy(imgs_test, test_path, NP_SAVE_2_IMGS_TEST)
+        save_to_numpy(ids_test, test_path, NP_SAVE_2_IDS_TEST)
 
-        categories = load_from_numpy(folder_path, NP_SAVE_2_CATS, data_shape=CATS_SHAPE)
-        imgs_test = load_from_numpy(folder_path, NP_SAVE_2_IMGS, data_shape=IMGS_SHAPE)
-        ids_test = load_from_numpy(folder_path, NP_SAVE_2_IDS, data_shape=IDS_SHAPE)
+        logging.info(" * NP SAVE 2 - Saving TRAIN data to numpy files at:   %s" % train_path)
+        save_sql_db_to_numpy(SQL_DENSE_TRAIN, train_connection, train_cursor, label_encoder)
 
-        # Run the models.
-        logging.info("=====   MODELS   =====")
-
-        logging.info(" * Running CNN categorization model...\n")
-
-        pred_y_cnn = cnn(ids_test, imgs_test, ids_train, labels, train_connection)
-        # test_x, test_y, pred_y_logreg = log_reg(ann_ids_test, ann_ids_train, test_y, train_y)
-
-        # Show the classification report and confusion matrix.
-        logging.info("=====   ANALYSIS   =====")
-
-        # # Convert labels to integers.
-        # logging.info(metrics.classification_report(test_y, pred_y_cnn, target_names=label_encoder.classes_))
+        # logging.info(" * NP SAVE 2 - Loading numpy files from:   %s" % test_path)
         #
-        # plt.figure()
-        # skplt.metrics.plot_confusion_matrix(test_y, pred_final, title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
-        # plt.yticks(label_encoder.fit_transform(label_encoder.classes_), label_encoder.classes_)
-        # plt.show()
+        # categories = load_from_numpy(test_path, NP_SAVE_2_CATS, data_shape=CATS_SHAPE)
+        # imgs_test = load_from_numpy(test_path, NP_SAVE_2_IMGS_TEST, data_shape=IMGS_SHAPE)
+        # ids_test = load_from_numpy(test_path, NP_SAVE_2_IDS_TEST, data_shape=IDS_SHAPE)
+        #
+        # logging.info(" * NP SAVE 2 - Loading numpy files from:   %s" % train_path)
+        #
+        # ids_train = load_from_numpy(train_path, NP_SAVE_2_IDS_TRAIN, data_shape=IDS_SHAPE)
+        #
+        # # Encode the category ids as integers (vectors).
+        # label_encoder = preprocessing.LabelEncoder()
+        # labels = label_encoder.fit_transform(categories[:, 0])
+        #
+        # # Run the models.
+        # logging.info("=====   MODELS   =====")
+        #
+        # logging.info(" * Running CNN categorization model...\n")
+        #
+        # pred_y_cnn = cnn(ids_test, imgs_test, ids_train, labels, train_connection)
+        # # test_x, test_y, pred_y_logreg = log_reg(ann_ids_test, ann_ids_train, test_y, train_y)
+        #
+        # # Show the classification report and confusion matrix.
+        # logging.info("=====   ANALYSIS   =====")
+        #
+        # # # Convert labels to integers.
+        # # logging.info(metrics.classification_report(test_y, pred_y_cnn, target_names=label_encoder.classes_))
+        # #
+        # # plt.figure()
+        # # skplt.metrics.plot_confusion_matrix(test_y, pred_final, title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
+        # # plt.yticks(label_encoder.fit_transform(label_encoder.classes_), label_encoder.classes_)
+        # # plt.show()
 
     finally:
         logging.info("Closed MySQL %s database connection." % SQL_DENSE_TEST)
