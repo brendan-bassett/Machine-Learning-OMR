@@ -87,16 +87,9 @@ STD_IMG_SHAPE = (25, 25)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = hei
 IMG_FLOAT_TYPE = np.float16
 
 BATCH_SIZE = 256        # For both the test and train dataset.
-BATCHES_PER_EPOCH = 64  # There are 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
+BATCHES_PER_EPOCH = 256  # There are 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
 VAL_BATCHES = 20         # There are 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
 EPOCHS = 1
-
-TRAIN_SIZE = 0.6
-TEST_SIZE = 0.3
-VALIDATION_SIZE = 0.1
-
-LOG_REG_MAX_ITER = 2000
-
 
 # ============== CLASSES ===========================================================================================
 
