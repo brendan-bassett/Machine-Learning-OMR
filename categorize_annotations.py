@@ -87,8 +87,8 @@ STD_IMG_SHAPE = (25, 25)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = hei
 IMG_FLOAT_TYPE = np.float16
 
 BATCH_SIZE = 256        # For both the test and train dataset.
-BATCHES_PER_EPOCH = 10  # There are 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
-VAL_BATCHES = 5         # There are 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
+BATCHES_PER_EPOCH = 64  # There are 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
+VAL_BATCHES = 20         # There are 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
 EPOCHS = 1
 
 TRAIN_SIZE = 0.6
@@ -100,8 +100,35 @@ LOG_REG_MAX_ITER = 2000
 
 # ============== CLASSES ===========================================================================================
 
-# Generates batches of data from numpy files.
+class BatchCallback(tensorflow.keras.callbacks.Callback):
+    # Save the accuracy and loss for each batch, not just each epoch.
+    # Copied and edited from:
+    #           https://stackoverflow.com/questions/66394598/how-to-get-history-over-one-epoch-after-every-batch
+
+
+    def __init__(self, imgs_test, lbl_mtr_test):
+        super(BatchCallback, self).__init__()
+
+        self.imgs_test = imgs_test
+        self.lbl_mtr_test = lbl_mtr_test
+
+        self.accuracy = []  # accuracy for each batch
+        self.loss = []  # loss for each batch
+        self.val_loss = []  # loss with test data for each batch.
+        self.val_acc = []  # accuracy of test data for each batch.
+
+    def on_train_batch_end(self, batch, logs=None):
+        self.accuracy.append(logs.get('accuracy'))
+        self.loss.append(logs.get('loss'))
+
+        val_loss_batch, accuracy_batch = self.model.evaluate(self.imgs_test, self.lbl_mtr_test)
+
+        self.val_loss.append(val_loss_batch)
+        self.val_acc.append(accuracy_batch)
+
+
 class DataGeneratorNumpy(keras_utils.Sequence):
+    # Generates batches of data from numpy files.
 
     def __init__(self, folder_path: str, num_annotations: int, num_labels: int, shuffle: bool = True):
         self.folder_path = folder_path
@@ -124,9 +151,9 @@ class DataGeneratorNumpy(keras_utils.Sequence):
 # ============== FUNCTIONS =========================================================================================
 
 
-# A categorization convolutional neural network. Loads and processes the annotations
-# for the test and train databases.
 def cnn(ids_test, num_labels: int):
+    # A categorization convolutional neural network. Loads and processes the annotations
+    # for the test and train databases.
 
     logging.info("Building neural network...\n")
     # Build the CNN model using sequential dense layers and max pooling.
@@ -143,31 +170,33 @@ def cnn(ids_test, num_labels: int):
     logging.info("Training model...\n")
     train_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TRAIN), len(ids_test), num_labels)
     test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), len(ids_test), num_labels)
+
+    imgs_test = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
+    lbl_mtr_test = np.zeros((0, num_labels))
+    for batch_counter in range(0, VAL_BATCHES):
+        imgs_batch, lbl_mtr_batch = test_gen.__getitem__(0)
+        imgs_test = np.concatenate((imgs_test, imgs_batch))
+        lbl_mtr_test = np.concatenate((lbl_mtr_test, lbl_mtr_batch))
+
+    batch_history = BatchCallback(imgs_test, lbl_mtr_test)
     sgd = tensorflow.keras.optimizers.SGD(learning_rate=0.01, decay=1e-6, momentum=0.9, nesterov=True)
     model.compile(loss="categorical_crossentropy", optimizer=sgd, metrics=["accuracy"])
-    history = model.fit(train_gen, epochs=EPOCHS, steps_per_epoch=BATCHES_PER_EPOCH,
+    history = model.fit(train_gen, callbacks = [batch_history], epochs=EPOCHS, steps_per_epoch=BATCHES_PER_EPOCH,
                         use_multiprocessing=True, validation_data=test_gen, validation_steps=VAL_BATCHES)
 
     # Use the model to make some predictions.
     logging.info("Using model to make test predictions...\n")
 
-    test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), len(ids_test), num_labels)
-    imgs_test = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
-    labels_test = np.zeros((0, num_labels))
-    for batch_counter in range(0, VAL_BATCHES):
-        imgs_batch, labels_batch = test_gen.__getitem__(0)
-        imgs_test = np.concatenate((imgs_test, imgs_batch))
-        labels_test = np.concatenate((labels_test, labels_batch))
-
     label_pred = model.predict(imgs_test)
 
-    return history, labels_test, label_pred
+    return history, batch_history, lbl_mtr_test, label_pred
 
 
-# Load a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
-#   May return 'None' for img if the img file failed to load.
-#   Returns (height, width, orientation) for meta, or None if calc_meta = False.
 def extract_ann_from_sql_row(row, calc_meta: bool = False):
+    # Load a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
+    #   May return 'None' for img if the img file failed to load.
+    #   Returns (height, width, orientation) for meta, or None if calc_meta = False.
+
     id = row[0]
     cat_id = row[1]
     meta = None
@@ -230,8 +259,9 @@ def extract_ann_from_sql_row(row, calc_meta: bool = False):
     return id, cat_id, meta, img
 
 
-# Get the save path for numpy data.
 def get_np_save_path(sql_src: str):
+    # Get the save path for numpy data.
+
     if sql_src is SQL_DENSE:
         return os.path.join(DS2_DENSE_SAVE_PATH + "/numpy_save/dense_%s/" % ANNOTATION_SET)
     elif sql_src is SQL_DENSE_TEST:
@@ -243,19 +273,17 @@ def get_np_save_path(sql_src: str):
         return ""
 
 
-# Load a batch of annotations from sql and annotation images to numpy. Apply image preprocessing during load process.
-# Does not calculate metas, because it must return (X, Y) for CNN.
-# RETURNS:  ann_imgs_srt        Numpy ndarray of preprocessed images for the CNN. Sorted in the order of the given ids.
-#           train_y_matr        Preprocessed labels as binary matrices.
 def load_batch_from_numpy(folder_path, batch_number: int):
-
-    logging.info("Loading batch %s data from numpy file..." % batch_number)
+    # Load a batch of annotations from sql and annotation images to numpy. Apply image preprocessing during load process.
+    # Does not calculate metas, because it must return (X, Y) for CNN.
+    # RETURNS:  img_srt_np        Numpy ndarray of preprocessed images for the CNN. Sorted in the order of the given ids.
+    #           label_matr_np        Preprocessed labels as binary matrices.
 
     batch_number_str = f'{batch_number:04d}'
-    img_srt_np = load_from_numpy(folder_path, NP_SAVE_1_IMGS % batch_number_str)
-    label_matr_np = load_from_numpy(folder_path, NP_SAVE_1_LBL_MATR % batch_number_str)
+    img_srt = load_from_numpy(folder_path, NP_SAVE_1_IMGS % batch_number_str)
+    label_matr = load_from_numpy(folder_path, NP_SAVE_1_LBL_MATR % batch_number_str)
 
-    return img_srt_np, label_matr_np
+    return img_srt, label_matr
 
 
 # Load a batch of annotations from sql and annotation images to numpy. Apply image preprocessing during load process.
@@ -729,36 +757,35 @@ def main():
 
         logging.info(" * Running CNN Categorization Model...\n")
 
-        history, labels_test, label_predict = cnn(ids_test, len(labels))\
+        history, batch_history, labels_test, label_predict = cnn(ids_test, len(labels))\
 
-        # Show the classification report and confusion matrix.
         logging.info(" * Producing Results and Analysis...")
 
-        print(labels_test[:, 1])
-
-        print(classification_report(labels_test[:, 1], label_predict))
-        # Plot the training loss and accuracy.
+        # Plot the training loss and accuracy over each epoch.
+        num_batches = len(batch_history.loss)
         plt.figure()
         plt.style.use("ggplot")
-        plt.plot(np.arange(0, EPOCHS), history.history["loss"], label="Training Loss")
-        plt.plot(np.arange(0, EPOCHS), history.history["val_loss"], label="Testing Loss")
-        plt.plot(np.arange(0, EPOCHS), history.history["accuracy"], label="Training Accuracy")
-        plt.plot(np.arange(0, EPOCHS), history.history["val_accuracy"], label="Testing Accuracy")
+        plt.plot(np.arange(0, num_batches), batch_history.loss, label="Training Loss")
+        plt.plot(np.arange(0, num_batches), batch_history.val_loss, label="Testing Loss")
+        plt.plot(np.arange(0, num_batches), batch_history.accuracy, label="Training Accuracy")
+        plt.plot(np.arange(0, num_batches), batch_history.val_acc, label="Testing Accuracy")
         plt.title("CNN: Training and Testing Loss & Accuracy")
-        plt.xlabel("Epoch #")
+        plt.xlabel("Batch #")
         plt.ylabel("Loss/Accuracy")
         plt.legend()
         plt.show()
 
-        # Convert labels to integers.
-        logging.info(metrics.classification_report(ids_test[:, 1].argmax(axis=1),
-                                                   label_predict.argmax(axis=1),
-                                                   target_names=label_encoder.classes_))
-
+        # Show the confusion matrix.
         plt.figure()
-        skplt.metrics.plot_confusion_matrix(ids_test[:, 1], label_predict, title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
-        plt.yticks(label_encoder.fit_transform(label_encoder.classes_), label_encoder.classes_)
+        skplt.metrics.plot_confusion_matrix(labels_test.argmax(axis=1), label_predict.argmax(axis=1), title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
+        plt.yticks(label_encoder.fit_transform(label_encoder.classes_), categories[:, 1])
         plt.show()
+
+        # Show the classification report.
+        print(metrics.classification_report(labels_test.argmax(axis=1),
+                                            label_predict.argmax(axis=1),
+                                            labels=categories[:,0],
+                                            target_names=categories[:, 1]))
 
     finally:
         logging.info("Closed MySQL %s database connection." % SQL_DENSE_TEST)
