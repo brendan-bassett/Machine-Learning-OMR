@@ -1,45 +1,26 @@
 """
 @author: Brendan Bassett
-@date: 05/09/2022
-
-CS 3120 MACHINE LEARNING
-MSU Denver
-Dr. Feng Jiang
+@date: 08/05/2022
 
 ------------------------------------------------------------------------------------------------------------------------
 
-FINAL PROJECT - Optical Music Character Recognition
+Machine Learning: Optical Music Character Recognition (OMR)
 
-Categorizes individual music symbols by type using 3 separate machine learning strategies. Data is processed through
-each, then each result becomes a vote towards the final determination.
 
-Process 1: Convolutional Neural Network
-Process 2: Convolutional Neural Network
-Process 3: Logistic Regression
+
 
 ------------------------------------------------------------------------------------------------------------------------
-
-DATASET SOURCE
-
-Sources:        http://www.inescporto.pt/~jsc/projects/OMR/
-                https://apacha.github.io/OMR-Datasets/#rebelo-dataset
-
-License:        CC-BY-SA
-
-Author:         A. Rebelo, G. Capela, J. S. Cardoso
-
-Publication:    “Optical recognition of music symbols: A comparative study”
-                International Journal on Document Analysis and Recognition, vol. 13, no. 1, pp. 19-31, 2010.
-                DOI: 10.1007/s10032-009-0100-1
+Final results after 256 batches of 256 annotations each in Training batch. Test size 20 batches of 256 annotations each.
+loss: 1.1498 - accuracy: 0.6985 - val_loss: 0.9491 - val_accuracy: 0.7137
 """
 
 # SETUP ****************************************************************************************************************
-import gc
+
 import gzip
 import logging
 import math
-import threading
 from datetime import datetime
+from random import random
 
 import cv2 as cv
 import matplotlib.pyplot as plt
@@ -47,20 +28,16 @@ import mysql.connector
 import numpy as np
 import os
 import scikitplot as skplt
-import tensorflow
-import keras.utils as keras_utils
-from sklearn import linear_model
-from sklearn import metrics
+import tensorflow as tf
 from numpy.core.records import ndarray
+from sklearn import metrics
 from sklearn import preprocessing
-from sklearn.metrics import classification_report
-from sklearn.model_selection import train_test_split
+from keras.callbacks import Callback
 from keras.layers import Dense, Flatten
 from keras.layers import Conv2D, MaxPooling2D
 from keras.models import Sequential
 
 # ============== CONSTANTS =========================================================================================
-from typing import List
 
 ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
 DS2_DENSE_SAVE_PATH = os.path.join("F://OMR_Datasets/DS2_Transformed")
@@ -86,31 +63,71 @@ ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or
 STD_IMG_SHAPE = (25, 25)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = height
 IMG_FLOAT_TYPE = np.float16
 
-BATCH_SIZE = 256        # For both the test and train dataset.
-BATCHES_PER_EPOCH = 256  # There are 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
-VAL_BATCHES = 20         # There are 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
+NUM_BATCHFILES_TEST = 212        # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
+NUM_BATCHFILES_TRAIN = 2673      # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
+
+BATCH_SIZE = 256  # For both the test and train dataset. They must match.
+BATCHES_PER_EPOCH = 256
+VAL_BATCHES = 20
 EPOCHS = 1
+
 
 # ============== CLASSES ===========================================================================================
 
-class BatchCallback(tensorflow.keras.callbacks.Callback):
-    # Save the accuracy and loss for each batch, not just each epoch.
-    # Copied and edited from:
-    #           https://stackoverflow.com/questions/66394598/how-to-get-history-over-one-epoch-after-every-batch
+class BatchCallback(Callback):
+    """ A callback class to save the accuracy and loss for test and train each batch.
 
+    Source
+    ----------
+    Copied from, then edited:
+               https://stackoverflow.com/questions/66394598/how-to-get-history-over-one-epoch-after-every-batch
 
-    def __init__(self, imgs_test, lbl_mtr_test):
+    Attributes
+    ----------
+    imgs_test : ndarray
+        A preprocessed numpy array of annotation images for validation with each batch. This stays the same each batch.
+    lbl_mtr_test : ndarray
+        A preprocessed numpy array of label matrices corresponding to each image.
+    accuracy : list
+        The training accuracy for each batch.
+        TODO: Determine whether accuracy is cumulative across all completed batches or just this batch.
+    loss : list
+        The training loss for each batch.
+        TODO: Determine whether loss is cumulative across all completed batches or just this batch.
+    val_loss : list
+        The test loss for each batch. Generated from the same multi-batch test dataset each time.
+    val_acc : list
+        The test accuracy for each batch. Generated from the same multi-batch test dataset each time.
+   """
+
+    def __init__(self, imgs_test: ndarray, lbl_mtr_test: ndarray):
+        """
+        Parameters
+        ----------
+        imgs_test: ndarray
+            A multibatch dataset of preprocessed images for validation.
+        lbl_mtr_test: ndarray
+            A multibatch dataset of preprocessed categories (as label matrices) for validation.
+        """
+
         super(BatchCallback, self).__init__()
 
         self.imgs_test = imgs_test
         self.lbl_mtr_test = lbl_mtr_test
 
-        self.accuracy = []  # accuracy for each batch
-        self.loss = []  # loss for each batch
-        self.val_loss = []  # loss with test data for each batch.
-        self.val_acc = []  # accuracy of test data for each batch.
+        self.accuracy = []
+        self.loss = []
+        self.val_loss = []
+        self.val_acc = []
 
-    def on_train_batch_end(self, batch, logs=None):
+    def on_train_batch_end(self, logs=None):
+        """ Saves the performance data for each batch.
+        Parameters
+        ----------
+        logs
+            The log of metadata on the completed batch.
+        """
+
         self.accuracy.append(logs.get('accuracy'))
         self.loss.append(logs.get('loss'))
 
@@ -120,33 +137,135 @@ class BatchCallback(tensorflow.keras.callbacks.Callback):
         self.val_acc.append(accuracy_batch)
 
 
-class DataGeneratorNumpy(keras_utils.Sequence):
-    # Generates batches of data from numpy files.
+class DataGeneratorNumpy(tf.keras.utils.Sequence):
+    """ A generator class to track and load preprocessed batch data from a single database (e.g. either test or train)
 
-    def __init__(self, folder_path: str, num_annotations: int, num_labels: int, shuffle: bool = True):
+    Attributes
+    ----------
+    folder_path : str
+        The location of the folder containing the preprocessed numpy files.
+    num_labels : int
+        The number of different labels, or categories possible in this annotation set.
+    num_batchfiles: int
+        The maximum batch number for this database. Allows randomization across the entire database,
+        even for partial epochs. Must be NUM_BATCHFILES_TEST or NUM_BATCHFILES_TRAIN
+    shuffle : bool = True
+        Whether or not to shuffle the batch numbers before each epoch.
+    batch_numbers: ndarray
+        The randomized array of batch numbers. Newly randomized each epoch.
+    batch_counter : int
+        The current batch. Starts at 0.
+    epoch_counter : int
+        The current epoch. Starts at 1.
+
+    Methods:
+    ----------
+    __getitem(index)__
+
+    at_epoch_end()
+        Shuffle the data at the creation of this class and the end of each epoch.
+   """
+
+    def __init__(self, folder_path: str,
+                 num_labels: int,
+                 num_batchfiles: int,
+                 shuffle: bool = True):
+        """
+        Parameters:
+        ----------
+        folder_path: str
+            The location of the folder containing the preprocessed numpy files.
+        num_labels: int
+            The number of different labels, or categories possible in this annotation set.
+        max_batch_idx: int
+            The maximum batch number for this database. Allows randomization across the entire
+            database, even for partial epochs. Must be NUM_BATCHFILES_TEST or NUM_BATCHFILES_TRAIN
+        shuffle: bool
+            Whether or not to shuffle the batch numbers before each epoch.
+        """
+
         self.folder_path = folder_path
-        self.num_annotations = num_annotations
         self.num_labels = num_labels
+        self.num_batchfiles = num_batchfiles
         self.shuffle = shuffle
 
-        self.batch_number = 0
-        self.epoch = 0
+        self.batch_numbers = np.arange(0, num_batchfiles)
+
+        self.batch_counter = 0
+        self.epoch_counter = 0
+
+        self.on_epoch_end()
 
     def __getitem__(self, index):
-        img_batch, label_matr_batch = load_batch_from_numpy(self.folder_path, batch_number=self.batch_number)
-        self.batch_number += 1
+        """ Load a pair of image arrays and a label matrix arrays for a random batch of data.
+
+        Parameters
+        ----------
+        index
+            Ignored. The generator class itself will iterate over random batches.
+
+        Returns
+        -------
+        ndarray
+            A single batch of preprocessed images.
+        ndarray
+            A single batch of preprocessed categories as label matrices.
+        """
+
+        load_batch_num = self.batch_numbers[self.batch_counter]
+        img_batch, label_matr_batch = load_batch_from_numpy(self.folder_path, batch_number=load_batch_num)
+        self.batch_counter += 1
+
+        if self.batch_counter >= self.num_batchfiles:
+            self.on_epoch_end()
+
         return img_batch, label_matr_batch
 
     def __len__(self):
-        return self.num_annotations // BATCH_SIZE
+        """ The number of batches in this generator.
+
+        Returns
+        -------
+        int
+            The number of batches. May be less than max_batch_idx for partial epochs.
+        """
+
+        return self.num_batchfiles
+
+    def on_epoch_end(self):
+        """ Shuffles the batch numbers at the creation of the generator and after each epoch.
+        """
+
+        logging.info("   Epoch %d complete." % self.epoch_counter)
+        self.batch_counter = 0
+        self.epoch_counter += 1
+        np.random.shuffle(self.batch_numbers)
 
 
 # ============== FUNCTIONS =========================================================================================
 
+def cnn(num_labels: int):
+    """ A categorization convolutional neural network. Predicts the category of an annotations.
 
-def cnn(ids_test, num_labels: int):
-    # A categorization convolutional neural network. Loads and processes the annotations
-    # for the test and train databases.
+    Loads the data in batches from preprocessed numpy files into the cnn, then tracks performance for each batch
+    as it fits to each. Then it makes a final set of predictions after the final batch of the final epoch.
+
+    Parameters
+    ----------
+    num_labels: int
+        The number of labels (categories) in this database.
+
+    Returns
+    ----------
+    Callback
+        The keras callback object for overall perfomance of the model.
+    Callback
+        The keras callback object for per batch perfomance of the model.
+    lbl_mtr_test
+        The multibatch test label (category) data. As preprocessed label matrices.
+    label_pred
+        The multibatch predicted label (category) data for the test batch. As label matrices.
+    """
 
     logging.info("Building neural network...\n")
     # Build the CNN model using sequential dense layers and max pooling.
@@ -154,15 +273,15 @@ def cnn(ids_test, num_labels: int):
     model = Sequential()
     model.add(Dense(256, activation='relu'))
     model.add(Conv2D(16, kernel_size=(5, 5), padding="same", activation='relu',
-                     input_shape = (BATCH_SIZE, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1)))
+                     input_shape=(BATCH_SIZE, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1)))
     model.add(MaxPooling2D(pool_size=(2, 2)))
     model.add(Flatten())
     model.add(Dense(256, activation='relu'))
     model.add(Dense(num_labels, activation='softmax'))
 
     logging.info("Training model...\n")
-    train_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TRAIN), len(ids_test), num_labels)
-    test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), len(ids_test), num_labels)
+    train_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TRAIN), num_labels, NUM_BATCHFILES_TRAIN)
+    test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
 
     imgs_test = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
     lbl_mtr_test = np.zeros((0, num_labels))
@@ -172,9 +291,9 @@ def cnn(ids_test, num_labels: int):
         lbl_mtr_test = np.concatenate((lbl_mtr_test, lbl_mtr_batch))
 
     batch_history = BatchCallback(imgs_test, lbl_mtr_test)
-    sgd = tensorflow.keras.optimizers.SGD(learning_rate=0.01, decay=1e-6, momentum=0.9, nesterov=True)
+    sgd = tf.keras.optimizers.SGD(learning_rate=0.01, decay=1e-6, momentum=0.9, nesterov=True)
     model.compile(loss="categorical_crossentropy", optimizer=sgd, metrics=["accuracy"])
-    history = model.fit(train_gen, callbacks = [batch_history], epochs=EPOCHS, steps_per_epoch=BATCHES_PER_EPOCH,
+    history = model.fit(train_gen, callbacks=[batch_history], epochs=EPOCHS, steps_per_epoch=BATCHES_PER_EPOCH,
                         use_multiprocessing=True, validation_data=test_gen, validation_steps=VAL_BATCHES)
 
     # Use the model to make some predictions.
@@ -186,7 +305,21 @@ def cnn(ids_test, num_labels: int):
 
 
 def extract_ann_from_sql_row(row, calc_meta: bool = False):
-    # Load a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
+    """ Loads a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
+
+    Parameters
+    ----------
+    row
+    calc_meta
+
+    Returns
+    -------
+    id
+    cat_id
+    meta
+    img
+    """
+    #
     #   May return 'None' for img if the img file failed to load.
     #   Returns (height, width, orientation) for meta, or None if calc_meta = False.
 
@@ -335,7 +468,7 @@ def load_batch_from_sql(ids_batch: ndarray, connection, num_categories: int):
                 break
 
     # Convert y values from integers to binary matrices.
-    label_matr_np = keras_utils.to_categorical(ids_batch[:, 1], num_classes=num_categories)
+    label_matr_np = tf.keras.utils.to_categorical(ids_batch[:, 1], num_classes=num_categories)
 
     # Flatten the image data
     img_srt_np = np.array(imgs_l_srt)
@@ -351,7 +484,7 @@ def load_batch_from_sql(ids_batch: ndarray, connection, num_categories: int):
 #                           * may return empty list [] if calc_metas == False
 #           imgs_l       3D List of standardized images.
 #           fails_l      1D List of annotation ids for those that would not load.
-def load_by_img(img_id: int, connection, cursor, calc_metas = False):
+def load_by_img(img_id: int, connection, cursor, calc_metas=False):
     logging.info("Loading all annotations from image %s..." % img_id)
 
     if calc_metas:
@@ -362,7 +495,7 @@ def load_by_img(img_id: int, connection, cursor, calc_metas = False):
                   "INNER JOIN annotations_categories ann_cat INNER JOIN categories cat ON (ann.img_id=\'%s\' " \
                   "AND ann.i=ann_cat.ann_id AND ann_cat.cat_id=cat.i AND cat.annotation_set=\'%s\')" \
                   % (img_id, ANNOTATION_SET)
-    else:   # calc_metas == False
+    else:  # calc_metas == False
         message = "SELECT ann.id, ann_cat.cat_id FROM annotations ann " \
                   "INNER JOIN annotations_categories ann_cat INNER JOIN categories cat ON (ann.img_id=\'%s\' " \
                   "AND ann.id=ann_cat.ann_id AND ann_cat.cat_id=cat.id AND cat.annotation_set=\'%s\')" \
@@ -371,7 +504,7 @@ def load_by_img(img_id: int, connection, cursor, calc_metas = False):
     connection.commit()
     fetch = cursor.fetchall()
 
-    ids_l = []        # 2D list with each row [ann_id, cat_id]
+    ids_l = []  # 2D list with each row [ann_id, cat_id]
     metas_l = []
     ann_imgs_l = []
     ann_fails_l = []
@@ -522,10 +655,10 @@ def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
     np.save(file=file, arr=data)
     file.close()
 
+
 # Convert all the annotation images for a database into numpy data files ready for use with CNN. Annotation
 # images and corresponding labels are loaded, preprocessed, and saved, in batches as indicated by BATCH_SIZE.
 def save_sql_db_to_numpy(sql_src: str, connection, cursor, label_encoder, calc_metas=False):
-
     logging.info("=====  SAVING SQL DATABASE  %s  =====" % sql_src)
 
     # Determine the path to the folder for saving numpy files.
@@ -697,9 +830,8 @@ def upload_fail_list_sql(sql_src: str):
 
 
 def main():
-
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'        # Prevents "allocation of --- exceeds %10 of free system memory
-                                                    # info from tensorflow. Message not an indication of performance."
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Prevents "allocation of --- exceeds %10 of free system memory
+    # info from tensorflow. Message not an indication of performance."
 
     logging.info(" ** Setting Up Logger...")
 
@@ -750,7 +882,7 @@ def main():
 
         logging.info(" * Running CNN Categorization Model...\n")
 
-        history, batch_history, labels_test, label_predict = cnn(ids_test, len(labels))\
+        history, batch_history, labels_test, label_predict = cnn(ids_test, len(labels))
 
         logging.info(" * Producing Results and Analysis...")
 
@@ -770,14 +902,15 @@ def main():
 
         # Show the confusion matrix.
         plt.figure()
-        skplt.metrics.plot_confusion_matrix(labels_test.argmax(axis=1), label_predict.argmax(axis=1), title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
+        skplt.metrics.plot_confusion_matrix(labels_test.argmax(axis=1), label_predict.argmax(axis=1),
+                                            title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
         plt.yticks(label_encoder.fit_transform(label_encoder.classes_), categories[:, 1])
         plt.show()
 
         # Show the classification report.
         print(metrics.classification_report(labels_test.argmax(axis=1),
                                             label_predict.argmax(axis=1),
-                                            labels=categories[:,0],
+                                            labels=categories[:, 0],
                                             target_names=categories[:, 1]))
 
     finally:
