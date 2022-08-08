@@ -1,20 +1,48 @@
 """
-@author: Brendan Bassett
-@date: 08/05/2022
+author: Brendan Bassett
+date: 08/05/2022
 
-------------------------------------------------------------------------------------------------------------------------
 
 Machine Learning: Optical Music Character Recognition (OMR)
+----------------------------------------------------------
 
+Categorizing musical symbols using a convolutional neural network (CNN).
 
+Dataset
+-------
+    DeepScores V2 (dense version)
 
+Sourced from: https://zenodo.org/record/4012193#.YvGNkHbMLl1
 
-------------------------------------------------------------------------------------------------------------------------
-Final results after 256 batches of 256 annotations each in Training batch. Test size 20 batches of 256 annotations each.
+Description:
+ The DeepScoresV2 Dataset for Music Object Detection contains digitally rendered images of written sheet music, together
+ with the corresponding ground truth to fit various types of machine learning models. A total of 151 Million different
+ instances of music symbols, belonging to 135 different classes are annotated. The total Dataset
+ contains 255,385 Images. For most researches, the dense version, containing 1714 of the most diverse and interesting
+ images, is a good starting point.
+
+ The dataset contains ground in the form of:
+
+    Non-oriented bounding boxes
+    Oriented bounding boxes
+    Semantic segmentation
+    Instance segmentation
+
+The accompaning paper: The DeepScoresV2 Dataset and Benchmark for Music Object Detection
+published at ICPR2020 can be found here:
+
+https://digitalcollection.zhaw.ch/handle/11475/20647
+
+Results
+-------
+Final results after 256 batches of 256 annotations each in Training batch (1/10 epoch).
+Test size 20 batches of 256 annotations each.
+
 loss: 1.1498 - accuracy: 0.6985 - val_loss: 0.9491 - val_accuracy: 0.7137
+
 """
 
-# SETUP ****************************************************************************************************************
+# ============== SETUP =============================================================================================
 
 import gzip
 import logging
@@ -67,8 +95,8 @@ NUM_BATCHFILES_TEST = 212        # 54,746 loadable annotations in the test db.  
 NUM_BATCHFILES_TRAIN = 2673      # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
 
 BATCH_SIZE = 256  # For both the test and train dataset. They must match.
-BATCHES_PER_EPOCH = 256
-VAL_BATCHES = 20
+BATCHES_PER_EPOCH = NUM_BATCHFILES_TRAIN
+VAL_BATCHES = NUM_BATCHFILES_TEST
 EPOCHS = 1
 
 
@@ -78,7 +106,7 @@ class BatchCallback(Callback):
     """ A callback class to save the accuracy and loss for test and train each batch.
 
     Source
-    ----------
+    ------
     Copied from, then edited:
                https://stackoverflow.com/questions/66394598/how-to-get-history-over-one-epoch-after-every-batch
 
@@ -120,10 +148,12 @@ class BatchCallback(Callback):
         self.val_loss = []
         self.val_acc = []
 
-    def on_train_batch_end(self, logs=None):
+    def on_train_batch_end(self, batch, logs=None):
         """ Saves the performance data for each batch.
         Parameters
         ----------
+        batch
+            The number of the batch within the epoch (as determined by the model, not this callback).
         logs
             The log of metadata on the completed batch.
         """
@@ -157,13 +187,6 @@ class DataGeneratorNumpy(tf.keras.utils.Sequence):
         The current batch. Starts at 0.
     epoch_counter : int
         The current epoch. Starts at 1.
-
-    Methods:
-    ----------
-    __getitem(index)__
-
-    at_epoch_end()
-        Shuffle the data at the creation of this class and the end of each epoch.
    """
 
     def __init__(self, folder_path: str,
@@ -193,8 +216,6 @@ class DataGeneratorNumpy(tf.keras.utils.Sequence):
 
         self.batch_counter = 0
         self.epoch_counter = 0
-
-        self.on_epoch_end()
 
     def __getitem__(self, index):
         """ Load a pair of image arrays and a label matrix arrays for a random batch of data.
@@ -286,9 +307,11 @@ def cnn(num_labels: int):
     imgs_test = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
     lbl_mtr_test = np.zeros((0, num_labels))
     for batch_counter in range(0, VAL_BATCHES):
-        imgs_batch, lbl_mtr_batch = test_gen.__getitem__(0)
+        imgs_batch, lbl_mtr_batch = test_gen.__getitem__(batch_counter)
         imgs_test = np.concatenate((imgs_test, imgs_batch))
         lbl_mtr_test = np.concatenate((lbl_mtr_test, lbl_mtr_batch))
+
+    test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
 
     batch_history = BatchCallback(imgs_test, lbl_mtr_test)
     sgd = tf.keras.optimizers.SGD(learning_rate=0.01, decay=1e-6, momentum=0.9, nesterov=True)
@@ -304,24 +327,28 @@ def cnn(num_labels: int):
     return history, batch_history, lbl_mtr_test, label_pred
 
 
-def extract_ann_from_sql_row(row, calc_meta: bool = False):
-    """ Loads a single annotation and its metadata from a row of SQL data into the instance numpy datasets.
+def extract_from_row(row: dict, calc_meta: bool = False):
+    """ Loads a single annotation and its metadata from a single row of SQL data into the instance numpy datasets.
 
     Parameters
     ----------
-    row
-    calc_meta
+    row: dict
+        A single entry (row) of data.
+    calc_meta: bool
+        Whether or not to calculate metadata (height, width, orientation). Adds significant time to preprocessing.
 
     Returns
     -------
-    id
-    cat_id
-    meta
+    int
+        annotation id
+    str
+        category id
+    dict
+        metadata. If calc_meta is True, metadata = (height, width, orientation).
+        Returns None if calc_meta is False.
     img
+        Annotation image from .jpg files in /annotations/ folder. May return None if image failed to load.
     """
-    #
-    #   May return 'None' for img if the img file failed to load.
-    #   Returns (height, width, orientation) for meta, or None if calc_meta = False.
 
     id = row[0]
     cat_id = row[1]
@@ -366,6 +393,7 @@ def extract_ann_from_sql_row(row, calc_meta: bool = False):
             if abs(angles[i] < orientation):
                 orientation = angles[i]
 
+        # Tuples here tend to create issues with conversion from lists to numpy array, so we use list.
         meta = [height, width, orientation]
 
     # - end "if calc_meta:"
@@ -386,7 +414,18 @@ def extract_ann_from_sql_row(row, calc_meta: bool = False):
 
 
 def get_np_save_path(sql_src: str):
-    # Get the save path for numpy data.
+    """ Get the save path for numpy data.
+
+    Parameters
+    ----------
+    sql_src: str
+        The name of the sql database to use as a data source.
+
+    Returns
+    -------
+    str
+        The path for the folder where numpy .npy.gz save files go.
+    """
 
     if sql_src is SQL_DENSE:
         return os.path.join(DS2_DENSE_SAVE_PATH + "/numpy_save/dense_%s/" % ANNOTATION_SET)
@@ -399,24 +438,53 @@ def get_np_save_path(sql_src: str):
         return ""
 
 
-def load_batch_from_numpy(folder_path, batch_number: int):
-    # Load a batch of annotations from sql and annotation images to numpy. Apply image preprocessing during load process.
-    # Does not calculate metas, because it must return (X, Y) for CNN.
-    # RETURNS:  img_srt_np        Numpy ndarray of preprocessed images for the CNN. Sorted in the order of the given ids.
-    #           label_matr_np        Preprocessed labels as binary matrices.
+def load_batch_from_numpy(folder_path: str, batch_number: int):
+    """ Load a batch of annotations from sql and annotation images to numpy.
+        Does not load metas because it must return (X, Y), not (X, Y, Z) for CNN.
+
+    Parameters
+    ----------
+    folder_path: str
+        The path for the folder where numpy .npy.gz save files go.
+    batch_number: int
+        The number of the file batch to load. Starts at 0.
+
+    Returns
+    -------
+    ndarray
+        An array of preprocessed images ready for use in the model.
+    ndarray
+        An array of preprocessed categories in the form of label matrices.
+    """
 
     batch_number_str = f'{batch_number:04d}'
-    img_srt = load_from_numpy(folder_path, NP_SAVE_1_IMGS % batch_number_str)
+    imgs = load_from_numpy(folder_path, NP_SAVE_1_IMGS % batch_number_str)
     label_matr = load_from_numpy(folder_path, NP_SAVE_1_LBL_MATR % batch_number_str)
 
-    return img_srt, label_matr
+    return imgs, label_matr
 
 
-# Load a batch of annotations from sql and annotation images to numpy. Apply image preprocessing during load process.
-# Does not calculate metas, because it must return (X, Y) for CNN.
-# RETURNS:  ann_imgs_srt        Numpy ndarray of preprocessed images for the CNN. Sorted in the order of the given ids.
-#           train_y_matr        Preprocessed labels as binary matrices.
 def load_batch_from_sql(ids_batch: ndarray, connection, num_categories: int):
+    """ Load a batch of annotations from sql and annotation images to numpy arrays.
+        Preprocessing is applied during this step.
+
+    Parameters
+    ----------
+    ids_batch
+        The id for each annotation in the batch. Returned arrays are each ordered the same as this array of ids.
+    connection
+        The sql connection for the database to query.
+    num_categories
+        The number of possible categories for annotations in this annotation set.
+
+    Returns
+    -------
+        ndarray
+            Numpy ndarray of preprocessed images for the CNN. Sorted in the order of the given ids.
+        ndarray
+            Preprocessed labels as binary matrices.
+    """
+
     cursor = connection.cursor()
 
     logging.info("Loading batch data from SQL...")
@@ -439,7 +507,7 @@ def load_batch_from_sql(ids_batch: ndarray, connection, num_categories: int):
     # Load & process the data for every annotation on this image.
     for row in fetch:
 
-        id, cat_id, meta, img = extract_ann_from_sql_row(row)
+        id, cat_id, meta, img = extract_from_row(row)
 
         if img is None:  # The image file may have failed to load.
             logging.error("      !! Img read failed !!   annotation batch failed to load.   id: %d" % id)
@@ -477,14 +545,28 @@ def load_batch_from_sql(ids_batch: ndarray, connection, num_categories: int):
     return img_srt_np, label_matr_np
 
 
-# Get the annotation data most useful for our model. Only get the annotations for a single image at a time.
-#       Include the annotation's category which corresponds to the annotation set being used in the model.
-# RETURNS:  ids_l        2D List of [ann_id, cat_id] rows.
-#           metas_l      2D List of [height, width, orientation] where orientation range: (-pi/4, pi/4)
-#                           * may return empty list [] if calc_metas == False
-#           imgs_l       3D List of standardized images.
-#           fails_l      1D List of annotation ids for those that would not load.
 def load_by_img(img_id: int, connection, cursor, calc_metas=False):
+    """ Get a single batch of annotation data corresponding to a full page of sheet music.
+
+    Parameters
+    ----------
+    img_id
+    connection
+    cursor
+    calc_metas
+
+    Returns
+    -------
+    list
+        List of ids. [annotation id, category id]
+    list
+        Tuples of meta data. (height, width, orientation)
+    list
+        3D list of annotation images.
+    list
+        Ids for every annotation that failed to load.
+    """
+
     logging.info("Loading all annotations from image %s..." % img_id)
 
     if calc_metas:
@@ -512,31 +594,45 @@ def load_by_img(img_id: int, connection, cursor, calc_metas=False):
     # Load & process the data for every annotation on this image.
     for row in fetch:
 
-        i, cat_id, meta, img = extract_ann_from_sql_row(row)
+        a_id, cat_id, meta, img = extract_from_row(row)
 
         if img is None:  # The image file may have failed to load.
-            logging.error("      !! Img read failed !!   annotation failed to load.   i: %d" % i)
-            ann_fails_l.append(i)
+            logging.error("      !! Img read failed !!   annotation failed to load.   a_id: %d" % a_id)
+            ann_fails_l.append(a_id)
             continue
 
         img_std = standardize_ann_img(img)
         if img_std is None:
-            logging.error("      !! Img failed to standardize !!   annotation failed to load.   i: %d" % i)
-            ann_fails_l.append(i)
+            logging.error("      !! Img failed to standardize !!   annotation failed to load.   a_id: %d" % a_id)
+            ann_fails_l.append(a_id)
             continue
         else:
             img_std = img_std.astype(IMG_FLOAT_TYPE).tolist()
 
-        ids_l.append([i, cat_id])
+        # A tuple here tends to create issues with conversion from ids_l list to numpy arrays, so we use list.
+        ids_l.append([a_id, cat_id])
         metas_l.append(meta)
         ann_imgs_l.append(img_std)
 
     return ids_l, metas_l, ann_imgs_l, ann_fails_l
 
 
-# Load a single numpy array from a binary numpy .npy.gz file.
-# RETURNS:  array_np    A single file as a single numpy array.
 def load_from_numpy(folder_path: str, name: str):
+    """ Load a single numpy array from a binary numpy .npy.gz file.
+
+    Parameters
+    ----------
+    folder_path
+        The path for the folder where numpy .npy.gz save files go.
+    name
+        The name of the numpy file to load. Do not include .npy.gz
+
+    Returns
+    -------
+    ndarray
+        A single file as a single numpy array.
+    """
+
     file_name = name + '.npy.gz'
     # logging.info("Loading numpy file...    %s" % file_name)
     file_path = os.path.join(folder_path + file_name)
@@ -546,15 +642,27 @@ def load_from_numpy(folder_path: str, name: str):
         return
 
     file = gzip.GzipFile(file_path, "r")
-    load_array = np.load(file, allow_pickle=True)  # allow_pickle=True enables pickled objects, which
+    load_array = np.load(file, allow_pickle=True)
+    # allow_pickle=True enables pickled objects, which
     # can be a security risk. We're using it anyways.
 
     return load_array
 
 
-# Reads the image file that corresponds to the given file id.
-#       Return: may be null if no image is found.
 def load_single_annotation(ann_id: int):
+    """ Reads the annotation image file that corresponds to the given file id.
+
+    Parameters
+    ----------
+    ann_id
+        The id of the annotation to load.
+
+    Returns
+    -------
+    ndarray
+        The annotation image. May be None if no image is found.
+    """
+
     ann_path = os.path.join(DS2_DENSE_SAVE_PATH + '/annotations/%s' % ann_id + '.jpg')
     if os.path.exists(ann_path):
         return cv.imread(ann_path, cv.IMREAD_GRAYSCALE).astype(dtype=np.uint8)
@@ -563,9 +671,22 @@ def load_single_annotation(ann_id: int):
         return
 
 
-# Loads all of the annotation data from the test and train databases and saves in batches as defined by
-# the constant BATCH SIZE. This enables much faster design of the neural network.
 def preprocess_data(test_connection, test_cursor, train_connection, train_cursor):
+    """ Loads all of the annotation data from the test and train databases and saves in batches as defined by
+        the constant BATCH SIZE. This enables much faster design of the neural network.
+
+    Parameters
+    ----------
+    test_connection
+        The sql connection for the database to pull TEST data from.
+    test_cursor
+        The sql cursor for transmitting queries and receiving TEST data.
+    train_connection
+        The sql connection for the database to pull TRAIN data from.
+    train_cursor
+        The sql cursor for transmitting queries and receiving TRAIN data.
+    """
+
     logging.info("=====  DATA PREPROCESSING - BY BATCH FROM ANNOTATION .JPG FILES TO NUMPY  =====")
 
     logging.info(" * Loading the categories and transforming to label vectors...")
@@ -636,14 +757,25 @@ def preprocess_data(test_connection, test_cursor, train_connection, train_cursor
     train_path = os.path.join(path)
 
     logging.info(" * Save TEST data to numpy files at:   %s" % test_path)
-    save_sql_db_to_numpy(SQL_DENSE_TEST, test_connection, test_cursor, label_encoder)
+    save_sql_to_numpy(SQL_DENSE_TEST, test_connection, test_cursor, label_encoder)
 
     logging.info(" * Save TRAIN data to numpy files at:   %s" % train_path)
-    save_sql_db_to_numpy(SQL_DENSE_TRAIN, train_connection, train_cursor, label_encoder)
+    save_sql_to_numpy(SQL_DENSE_TRAIN, train_connection, train_cursor, label_encoder)
 
 
-# Save a single numpy array into a compressed binary .npy.gz file.
 def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
+    """ Save a single numpy array into a compressed binary .npy.gz file.
+
+    Parameters
+    ----------
+    data
+        The numpy array to save to file.
+    folder_path
+        The path for the folder to save numpy .npy.gz files.
+    file_name
+        The name of the single file. Do not include .npy.gz
+    """
+
     folder_path = os.path.join(folder_path)
 
     if not os.path.exists(folder_path):
@@ -656,9 +788,24 @@ def save_to_numpy(data: ndarray, folder_path: str, file_name: str):
     file.close()
 
 
-# Convert all the annotation images for a database into numpy data files ready for use with CNN. Annotation
-# images and corresponding labels are loaded, preprocessed, and saved, in batches as indicated by BATCH_SIZE.
-def save_sql_db_to_numpy(sql_src: str, connection, cursor, label_encoder, calc_metas=False):
+def save_sql_to_numpy(sql_src: str, connection, cursor, label_encoder, calc_metas=False):
+    """ Convert all the annotation images for a database into numpy data files ready for use with CNN. Annotation
+        images and corresponding labels are loaded, preprocessed, and saved, in batches as indicated by BATCH_SIZE.
+
+    Parameters
+    ----------
+    sql_src
+        The name of the sql database to use a data source.
+    connection
+        The sql connection for the database to pull data from.
+    cursor
+        The sql cursor for transmitting queries and receiving data.
+    label_encoder
+        The object for encoding category ids to integer "labels" starting with 0.
+    calc_metas
+        Whether to calculate the metadata for each annotation.
+    """
+
     logging.info("=====  SAVING SQL DATABASE  %s  =====" % sql_src)
 
     # Determine the path to the folder for saving numpy files.
@@ -748,10 +895,22 @@ def save_sql_db_to_numpy(sql_src: str, connection, cursor, label_encoder, calc_m
         save_to_numpy(label_matr_np, save_path, NP_SAVE_1_LBL_MATR % batch_counter_str)
 
 
-# Make a single annotation into a standard size of image. Images too large will be resized down.
-# Images too small will be padded with black pixels. This should help retain the size of the annotation as much
-# as possible, while capping at a reasonably small size for the CNN.
 def standardize_ann_img(img: ndarray):
+    """ Make a single annotation into a standard size of image. Images too large will be resized down.
+        Images too small will be padded with black pixels. This should help retain the size of the annotation as much
+        as possible, while capping at a reasonably small size for the CNN.
+
+    Parameters
+    ----------
+    img: ndarray
+        A single annotation image as loaded from the /annotations/ folder.
+
+    Returns
+    -------
+    ndarray
+        The standardized image.
+    """
+
     width = len(img)
     height = len(img[0])
 
@@ -792,10 +951,17 @@ def standardize_ann_img(img: ndarray):
             return std_img
 
 
-# Uploads the list of annotations that failed to load from .npy.gz file into the SQL database.
-# It is unclear why these images fail to load, but it hapens to the same ones every time.
-# By saving this list we can prevent issues with loading in batches later.
 def upload_fail_list_sql(sql_src: str):
+    """ Uploads the list of annotations that failed to load from .npy.gz file into the SQL database.
+        It is unclear why these images fail to load, but it hapens to the same ones every time.
+        By saving this list we can prevent issues with loading in batches later.
+
+    Parameters
+    ----------
+    sql_src
+        The name of the sql database to upload the failure list to.
+    """
+
     logging.info("Loading fail list from numpy...")
 
     fail_ids = load_from_numpy(get_np_save_path(sql_src), 'ann_fails')
@@ -830,6 +996,10 @@ def upload_fail_list_sql(sql_src: str):
 
 
 def main():
+    """ Loads, preprocesses, saves annotation data after extraction of pixelwise annotation data from
+        a single page sheet music "image". Then runs a deep learning model to predict the category for each.
+    """
+
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Prevents "allocation of --- exceeds %10 of free system memory
     # info from tensorflow. Message not an indication of performance."
 
@@ -882,7 +1052,7 @@ def main():
 
         logging.info(" * Running CNN Categorization Model...\n")
 
-        history, batch_history, labels_test, label_predict = cnn(ids_test, len(labels))
+        history, batch_history, labels_test, label_predict = cnn(len(labels))
 
         logging.info(" * Producing Results and Analysis...")
 
@@ -900,18 +1070,18 @@ def main():
         plt.legend()
         plt.show()
 
-        # Show the confusion matrix.
-        plt.figure()
-        skplt.metrics.plot_confusion_matrix(labels_test.argmax(axis=1), label_predict.argmax(axis=1),
-                                            title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
-        plt.yticks(label_encoder.fit_transform(label_encoder.classes_), categories[:, 1])
-        plt.show()
-
-        # Show the classification report.
-        print(metrics.classification_report(labels_test.argmax(axis=1),
-                                            label_predict.argmax(axis=1),
-                                            labels=categories[:, 0],
-                                            target_names=categories[:, 1]))
+        # # Show the confusion matrix.
+        # plt.figure()
+        # skplt.metrics.plot_confusion_matrix(labels_test.argmax(axis=1), label_predict.argmax(axis=1),
+        #                                     title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
+        # plt.yticks(label_encoder.fit_transform(label_encoder.classes_), categories[:, 1])
+        # plt.show()
+        #
+        # # Show the classification report.
+        # print(metrics.classification_report(labels_test.argmax(axis=1),
+        #                                     label_predict.argmax(axis=1),
+        #                                     labels=categories[:, 0],
+        #                                     target_names=categories[:, 1]))
 
     finally:
         logging.info("Closed MySQL %s database connection." % SQL_DENSE_TEST)
