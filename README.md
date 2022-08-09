@@ -15,8 +15,7 @@ MySQL, NumPy, Scikit-learn, Tensorflow, Keras, MatPlotLib, OpenCV, Logging
 
 loss: 1.1498 - accuracy: 0.6985 - val_loss: 0.9491 - val_accuracy: 0.7137
 
-![CNN Train vs Test Loss & Accuracy]
-(https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/plots/TrainTest_LossAccuracy.png)
+<img alt="CNN Train vs Test Loss & Accuracy" width="500" height="auto" src="https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/plots/TrainTest_LossAccuracy.png"/>
 
 Final results after 256 batches of 256 annotations each in Training batch (1/10 epoch).
 Test size 20 batches of 256 annotations each.
