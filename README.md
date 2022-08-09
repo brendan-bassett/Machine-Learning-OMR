@@ -1,6 +1,55 @@
-# Optical Musical Recognition (OMR)
+# Machine Learning: Optical Music Character Recognition (OMR)
 
-## Motivation for this Project
+Categorizing musical symbols using a convolutional neural network (CNN).
+
+Brendan Bassett
+
+Originally built for Machine Learning final project May 10, 2022.
+Drastically extended and revised August 8, 2022.
+
+## Libraries Used
+
+MySQL, NumPy, Scikit-learn, Tensorflow, Keras, MatPlotLib, OpenCV, Logging
+
+## Results
+
+loss: 1.1498 - accuracy: 0.6985 - val_loss: 0.9491 - val_accuracy: 0.7137
+
+![CNN Train vs Test Loss & Accuracy]
+(https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/plots/TrainTest_LossAccuracy.png)
+
+Final results after 256 batches of 256 annotations each in Training batch (1/10 epoch).
+Test size 20 batches of 256 annotations each.
+
+## Dataset
+
+### DeepScores V2 (dense version)
+
+Sourced from: https://zenodo.org/record/4012193#.YvGNkHbMLl1
+
+### Description
+ The DeepScoresV2 Dataset for Music Object Detection contains digitally rendered images of written sheet music, together
+ with the corresponding ground truth to fit various types of machine learning models. A total of 151 Million different
+ instances of music symbols, belonging to 135 different classes are annotated. The total Dataset
+ contains 255,385 Images. For most researches, the dense version, containing 1714 of the most diverse and interesting
+ images, is a good starting point.
+
+### Structure
+ The dataset contains ground in the form of:
+
+    Non-oriented bounding boxes
+    Oriented bounding boxes
+    Semantic segmentation
+    Instance segmentation
+
+### Source Paper
+The accompaning paper: The DeepScoresV2 Dataset and Benchmark for Music Object Detection published at ICPR2020 can be 
+found here:
+
+https://digitalcollection.zhaw.ch/handle/11475/20647
+
+## Motivation
+
 Most of the sheet music that musicians typically use is digitized from a physical copy.
 Often it is a poorly taken photo of a book, or a photocopy, or even a copy of a copy. This means
 that the vast majority of musicians’ digital collections are of poor quality and difficult to read.
@@ -33,61 +82,3 @@ Neural networks are the essential technology that OMR has needed to be remotely
 useful. It enables the software to accommodate for the vast diversity of musical notation. In this
 project I take a dataset of common musical characters, already removed from the staffs they are
 on, and seek to categorize them.
-
-
-## Sources
-Most of this work, primarily the code, is my own. There are some sections loosely
-derived from class demos, but I have changed quite a lot to fit my own purposes. The bulk of the
-work that is not mine is the dataset, which is sourced from an academic paper, “Optical
-recognition of music symbols: A comparative study” by A. Rebelo and others (citation below).
-This was extremely valuable in that it enabled me to focus on the neural network itself, rather
-than spending an exorbitant amount of time on image preprocessing and segmentation. For my
-project, I pared down the dataset just a bit in order to focus on the categories of characters I felt
-were the most essential for sheet music notation in general.
-
-The other concept that I used is outlined in “A new optical music recognition system
-based on combined neural networks” by Cuihong Wen and others. It uses several neural
-networks in parallel, and then tallies “votes” between each to more accurately categorize each
-character. This was very useful to me, as nearly every adjustment I made to the
-hyperparameters of my convolution neural network had miniscule effect on the end results. In
-the end I used three different machine learning models, and took a “vote” between the three to
-arrive at the final prediction.
-
-## Libraries Used
-OpenCV, Numpy, Tensorflow Keras, SKLearn, and Matplotlib.
-
-## Machine Learning Algorithms
-I used primarily logistic regression and convolutional neural networks. Most OMR
-software of the 90s and 2000s were based on logistic regression, so I wanted to compare the
-performance of that with convolutional neural networks. It turns out that for this dataset, logistic
-regression is actually pretty accurate. However both of the convolution neural networks out
-performed the logistic regression model by a notable amount.
-
-The convolution neural network 2 is quite simple, yet the most effective. There are only a
-few layers, with the convolution layer performing most of the meaningful work. After trying a 3x3,
-5x5, and 7x7 filter I realized that the 7x7 did the best. This is surprising since the input images
-are so small. I figured that it would not be as effective as the others, but possibly the padding
-helps here. Only 4 epochs are needed in order to achieve the best results
-The convolution neural network 1 is a test to see if I could get better results using more
-layers. It uses a 5x5 filter because the performance is still good (but not quite as good as 7x7)
-and I wanted some more variation between models for more interesting voting later on. This 
-network is much slower to run, and its performance is similar to convolution neural network 2. It
-needs 5 epochs in order to achieve the best results.
-The logistic regression model did shockingly well, though not as good as the other two
-models. In the final voting process I noticed that if one model differed from the others, it was
-usually this one.
-
-## Visualization
-
-![CNN 1 Train-Test Loss & Accuracy](https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/output/cnn1_train_test_loss_accuracy.png)
-![CNN 2 Train-Test Loss & Accuracy](https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/output/cnn2_train_test_loss_accuracy.png)
-![Post-Voting Confusion Matrix](https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/output/final_results_confusion_matrix.png)
-![Logistic Regression Confusion Matrix](https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/output/log_reg_conf_matrix.png)
-
-## Voting Process
-The idea was to see if I could improve upon the already excellent results of cnn2. The voting process
-gives equal weight to each model (since the performance of each is so similar), and defaults to
-the the result from convolution neural network 2 if a three-way tie occurs. This only happened
-once in the entire testing data, and the cnn2 results were in fact the correct one. There were
-about 50 instances where predictions between the models did not fully match, and this voting
-process nearly always chose the correct answer.

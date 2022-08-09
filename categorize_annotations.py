@@ -2,7 +2,6 @@
 author: Brendan Bassett
 date: 08/05/2022
 
-
 Machine Learning: Optical Music Character Recognition (OMR)
 ----------------------------------------------------------
 
@@ -33,37 +32,30 @@ published at ICPR2020 can be found here:
 
 https://digitalcollection.zhaw.ch/handle/11475/20647
 
-Results
--------
-Final results after 256 batches of 256 annotations each in Training batch (1/10 epoch).
-Test size 20 batches of 256 annotations each.
-
-loss: 1.1498 - accuracy: 0.6985 - val_loss: 0.9491 - val_accuracy: 0.7137
-
+(SEE README.MD FOR MORE INFORMATION)
 """
 
 # ============== SETUP =============================================================================================
 
+import cv2 as cv
 import gzip
 import logging
 import math
-from datetime import datetime
-from random import random
-
-import cv2 as cv
 import matplotlib.pyplot as plt
 import mysql.connector
 import numpy as np
 import os
 import scikitplot as skplt
 import tensorflow as tf
-from numpy.core.records import ndarray
-from sklearn import metrics
-from sklearn import preprocessing
+
+from datetime import datetime
 from keras.callbacks import Callback
 from keras.layers import Dense, Flatten
 from keras.layers import Conv2D, MaxPooling2D
 from keras.models import Sequential
+from numpy.core.records import ndarray
+from sklearn import metrics
+from sklearn import preprocessing
 
 # ============== CONSTANTS =========================================================================================
 
