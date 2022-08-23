@@ -84,12 +84,12 @@ STD_IMG_SHAPE = (25, 25)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = hei
 IMG_FLOAT_TYPE = np.float16
 
 NUM_BATCHFILES_TRAIN = 2674      # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
-NUM_BATCHFILES_TEST = 213         # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
+NUM_BATCHFILES_TEST = 213        # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
 
 BATCH_SIZE = 256                        # For both the test and train dataset. They must match.
-EPOCH_SIZE = NUM_BATCHFILES_TRAIN       # The number of batches in a single "epoch" of the training dataset
-VAL_SIZE = 8                            # The number of batches in the validation phase after each training batch
-TEST_SIZE = NUM_BATCHFILES_TEST         # The number of batches in the final test phase after training is complete
+EPOCH_SIZE = 16       # The number of batches in a single "epoch" of the training dataset
+VAL_SIZE = 1                            # The number of batches in the validation phase after each training batch
+TEST_SIZE = 8         # The number of batches in the final test phase after training is complete
 EPOCHS = 1
 
 
@@ -121,20 +121,17 @@ class BatchCallback(Callback):
         The test accuracy for each batch. Generated from the same multi-batch test dataset each time.
    """
 
-    def __init__(self, imgs_test: ndarray, lbl_mtr_test: ndarray):
+    def __init__(self, data_generator):
         """
         Parameters
         ----------
-        imgs_test: ndarray
-            A multibatch dataset of preprocessed images for validation.
-        lbl_mtr_test: ndarray
-            A multibatch dataset of preprocessed categories (as label matrices) for validation.
+        data_generator: DataGeneratorNumpy
+            A generator for loading numpy files
         """
 
         super(BatchCallback, self).__init__()
 
-        self.imgs_test = imgs_test
-        self.lbl_mtr_test = lbl_mtr_test
+        self.data_generator = data_generator
 
         self.accuracy = []
         self.loss = []
@@ -154,7 +151,7 @@ class BatchCallback(Callback):
         self.accuracy.append(logs.get('accuracy'))
         self.loss.append(logs.get('loss'))
 
-        val_loss_batch, accuracy_batch = self.model.evaluate(self.imgs_test, self.lbl_mtr_test)
+        val_loss_batch, accuracy_batch = self.model.evaluate(self.data_generator, steps=VAL_SIZE)
 
         self.val_loss.append(val_loss_batch)
         self.val_acc.append(accuracy_batch)
@@ -305,9 +302,10 @@ def cnn(num_labels: int):
         imgs_val = np.concatenate((imgs_val, imgs_batch))
         lbl_mtr_val = np.concatenate((lbl_mtr_val, lbl_mtr_batch))
 
+    val_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
     test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
 
-    batch_history = BatchCallback(imgs_val, lbl_mtr_val)
+    batch_history = BatchCallback(val_gen)
     sgd = tf.keras.optimizers.SGD(learning_rate=0.01, decay=1e-6, momentum=0.9, nesterov=True)
     model.compile(loss="categorical_crossentropy", optimizer=sgd, metrics=["accuracy"])
     history = model.fit(train_gen, callbacks=[batch_history], epochs=EPOCHS, steps_per_epoch=EPOCH_SIZE,
