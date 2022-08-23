@@ -59750,3 +59750,11 @@ Training model...
 
    Epoch 0 complete.
 Callback method `on_train_batch_end` is slow compared to the batch time (batch time: 2.1847s vs `on_train_batch_end` time: 93.7803s). Check your callbacks.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+No numpy save file! Please save a numpy file:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/categoriess_2.npy.gz
+No numpy save file! Please save a numpy file:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/ids_test_2.npy.gz
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+No numpy save file! Please save a numpy file:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/ids_train_2.npy.gz
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.

@@ -83,12 +83,13 @@ ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or
 STD_IMG_SHAPE = (25, 25)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = height
 IMG_FLOAT_TYPE = np.float16
 
-NUM_BATCHFILES_TEST = 212        # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
-NUM_BATCHFILES_TRAIN = 2673      # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
+NUM_BATCHFILES_TRAIN = 2674      # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
+NUM_BATCHFILES_TEST = 213         # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
 
-BATCH_SIZE = 256  # For both the test and train dataset. They must match.
-BATCHES_PER_EPOCH = NUM_BATCHFILES_TRAIN
-VAL_BATCHES = NUM_BATCHFILES_TEST
+BATCH_SIZE = 256                        # For both the test and train dataset. They must match.
+EPOCH_SIZE = NUM_BATCHFILES_TRAIN       # The number of batches in a single "epoch" of the training dataset
+VAL_SIZE = 8                            # The number of batches in the validation phase after each training batch
+TEST_SIZE = NUM_BATCHFILES_TEST         # The number of batches in the final test phase after training is complete
 EPOCHS = 1
 
 
@@ -274,7 +275,7 @@ def cnn(num_labels: int):
         The keras callback object for overall perfomance of the model.
     Callback
         The keras callback object for per batch perfomance of the model.
-    lbl_mtr_test
+    lbl_mtr_val
         The multibatch test label (category) data. As preprocessed label matrices.
     label_pred
         The multibatch predicted label (category) data for the test batch. As label matrices.
@@ -296,27 +297,28 @@ def cnn(num_labels: int):
     train_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TRAIN), num_labels, NUM_BATCHFILES_TRAIN)
     test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
 
-    imgs_test = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
-    lbl_mtr_test = np.zeros((0, num_labels))
-    for batch_counter in range(0, VAL_BATCHES):
+    # Load the set of data for validation at the end of each batch.
+    imgs_val = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
+    lbl_mtr_val = np.zeros((0, num_labels))
+    for batch_counter in range(0, VAL_SIZE):
         imgs_batch, lbl_mtr_batch = test_gen.__getitem__(batch_counter)
-        imgs_test = np.concatenate((imgs_test, imgs_batch))
-        lbl_mtr_test = np.concatenate((lbl_mtr_test, lbl_mtr_batch))
+        imgs_val = np.concatenate((imgs_val, imgs_batch))
+        lbl_mtr_val = np.concatenate((lbl_mtr_val, lbl_mtr_batch))
 
     test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
 
-    batch_history = BatchCallback(imgs_test, lbl_mtr_test)
+    batch_history = BatchCallback(imgs_val, lbl_mtr_val)
     sgd = tf.keras.optimizers.SGD(learning_rate=0.01, decay=1e-6, momentum=0.9, nesterov=True)
     model.compile(loss="categorical_crossentropy", optimizer=sgd, metrics=["accuracy"])
-    history = model.fit(train_gen, callbacks=[batch_history], epochs=EPOCHS, steps_per_epoch=BATCHES_PER_EPOCH,
-                        use_multiprocessing=True, validation_data=test_gen, validation_steps=VAL_BATCHES)
+    history = model.fit(train_gen, callbacks=[batch_history], epochs=EPOCHS, steps_per_epoch=EPOCH_SIZE,
+                        use_multiprocessing=True, validation_data=test_gen, validation_steps=TEST_SIZE)
 
     # Use the model to make some predictions.
     logging.info("Using model to make test predictions...\n")
 
-    label_pred = model.predict(imgs_test)
+    label_pred = model.predict(imgs_val)
 
-    return history, batch_history, lbl_mtr_test, label_pred
+    return history, batch_history, lbl_mtr_val, label_pred
 
 
 def extract_from_row(row: dict, calc_meta: bool = False):
@@ -984,8 +986,8 @@ def upload_fail_list_sql(sql_src: str):
         connection.close()
         cv.destroyAllWindows()
 
-    # ============== MAIN CODE =========================================================================================
 
+# ================== MAIN CODE =========================================================================================
 
 def main():
     """ Loads, preprocesses, saves annotation data after extraction of pixelwise annotation data from

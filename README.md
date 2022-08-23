@@ -2,7 +2,7 @@
 
 Categorizing musical symbols using a convolutional neural network (CNN).
 
-Brendan Bassett
+Created by Brendan Bassett
 
 Originally built for Machine Learning final project May 10, 2022.
 Drastically extended and revised August 8, 2022.
