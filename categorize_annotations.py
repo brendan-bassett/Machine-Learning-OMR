@@ -43,6 +43,7 @@ import logging
 import math
 import matplotlib.pyplot as plt
 import mysql.connector
+import numpy
 import numpy as np
 import os
 import scikitplot as skplt
@@ -152,17 +153,17 @@ class BatchCallback(Callback):
             The log of metadata on the completed batch.
         """
 
-        self.accuracy.append(logs.get('accuracy'))
-        self.loss.append(logs.get('loss'))
 
         # Evaluate after every so many batches (BATCH_EVAL_FREQ).
         if self.batch_number % BATCH_EVAL_FREQ == 0:
+            self.loss.append(logs.get('loss'))
+            self.accuracy.append(logs.get('accuracy'))
+
             val_loss_batch, accuracy_batch = self.model.evaluate(self.data_generator, steps=VAL_SIZE, verbose=0)
             self.val_loss.append(val_loss_batch)
             self.val_acc.append(accuracy_batch)
 
         self.batch_number += 1
-
 
 
 class DataGeneratorNumpy(tf.keras.utils.Sequence):
@@ -1049,26 +1050,43 @@ def main():
 
         history, batch_history, lbl_mtr_test, lbl_mtr_predict = cnn(len(labels))
 
-        logging.info(" * Saving results...\n")
+        batch_loss = batch_history.loss
+        batch_val_loss = batch_history.val_loss
+        batch_accuracy = batch_history.accuracy
+        batch_val_acc = batch_history.val_acc
 
-        save_to_numpy(batch_history.loss, CNN_RESULTS_SAVE_PATH, "batch_loss")
-        save_to_numpy(batch_history.val_loss, CNN_RESULTS_SAVE_PATH, "batch_val_loss")
-        save_to_numpy(batch_history.accuracy, CNN_RESULTS_SAVE_PATH, "batch_accuracy")
-        save_to_numpy(batch_history.val_acc, CNN_RESULTS_SAVE_PATH, "batch_val_acc")
+        # The following save and load functions exists so that analysis and visualization
+        # can be adjusted after the model is fitted without fitting all over again.
+        logging.info(" * Saving results to numpy...\n")
+
+        save_to_numpy(batch_loss, CNN_RESULTS_SAVE_PATH, "batch_loss")
+        save_to_numpy(batch_val_loss, CNN_RESULTS_SAVE_PATH, "batch_val_loss")
+        save_to_numpy(batch_accuracy, CNN_RESULTS_SAVE_PATH, "batch_accuracy")
+        save_to_numpy(batch_val_acc, CNN_RESULTS_SAVE_PATH, "batch_val_acc")
 
         save_to_numpy(lbl_mtr_test, CNN_RESULTS_SAVE_PATH, "lbl_mtr_test")
         save_to_numpy(lbl_mtr_predict, CNN_RESULTS_SAVE_PATH, "lbl_mtr_predict")
 
+        # logging.info(" * Loading results from numpy...\n")
+        #
+        # batch_loss = load_from_numpy(CNN_RESULTS_SAVE_PATH, "batch_loss")
+        # batch_val_loss = load_from_numpy(CNN_RESULTS_SAVE_PATH, "batch_val_loss")
+        # batch_accuracy = load_from_numpy(CNN_RESULTS_SAVE_PATH, "batch_accuracy")
+        # batch_val_acc = load_from_numpy(CNN_RESULTS_SAVE_PATH, "batch_val_acc")
+        #
+        # lbl_mtr_test = load_from_numpy(CNN_RESULTS_SAVE_PATH, "lbl_mtr_test")
+        # lbl_mtr_predict = load_from_numpy(CNN_RESULTS_SAVE_PATH, "lbl_mtr_predict")
+
         logging.info(" * Producing Results and Analysis...")
 
         # Plot the training loss and accuracy over each epoch.
-        num_batches = len(batch_history.loss)
+        num_batches = len(batch_loss)
         plt.figure()
         plt.style.use("ggplot")
-        plt.plot(np.arange(0, num_batches), batch_history.loss, label="Training Loss", linewidth=0.5)
-        plt.plot(np.arange(0, num_batches), batch_history.val_loss, label="Testing Loss", linewidth=0.5)
-        plt.plot(np.arange(0, num_batches), batch_history.accuracy, label="Training Accuracy", linewidth=0.5)
-        plt.plot(np.arange(0, num_batches), batch_history.val_acc, label="Testing Accuracy", linewidth=0.5)
+        plt.plot(np.arange(0, num_batches), batch_loss, label="Training Loss", linewidth=0.5)
+        plt.plot(np.arange(0, num_batches), batch_val_loss, label="Testing Loss", linewidth=0.5)
+        plt.plot(np.arange(0, num_batches), batch_accuracy, label="Training Accuracy", linewidth=0.5)
+        plt.plot(np.arange(0, num_batches), batch_val_acc, label="Testing Accuracy", linewidth=0.5)
         plt.title("CNN: Training and Testing Loss & Accuracy")
         plt.xlabel("Batch #")
         plt.ylabel("Loss/Accuracy")
