@@ -84,14 +84,14 @@ ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or
 STD_IMG_SHAPE = (25, 25)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = height
 IMG_FLOAT_TYPE = np.float16
 
-BATCH_SIZE = 256                        # For both the test and train dataset. They must match.
-NUM_BATCHFILES_TRAIN = 2674             # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
-NUM_BATCHFILES_TEST = 213               # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
+BATCH_SIZE = 256                    # For both the test and train dataset. They must match.
+NUM_BATCHFILES_TRAIN = 2674         # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
+NUM_BATCHFILES_TEST = 213           # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
 
 EPOCH_SIZE = NUM_BATCHFILES_TRAIN       # The number of batches in a single "epoch" of the training dataset
 VAL_SIZE = 1                            # The number of batches in the validation phase after each training batch
 TEST_SIZE = NUM_BATCHFILES_TEST         # The number of batches in the final test phase after training is complete
-EPOCHS = 1
+EPOCHS = 3
 
 
 # ============== CLASSES ===========================================================================================
@@ -1044,11 +1044,6 @@ def main():
 
         logging.info(" * Saving results...\n")
 
-        save_to_numpy(history.loss, CNN_RESULTS_SAVE_PATH, "batch_loss")
-        save_to_numpy(history.val_loss, CNN_RESULTS_SAVE_PATH, "batch_val_loss")
-        save_to_numpy(history.accuracy, CNN_RESULTS_SAVE_PATH, "batch_accuracy")
-        save_to_numpy(history.val_acc, CNN_RESULTS_SAVE_PATH, "batch_val_acc")
-
         save_to_numpy(batch_history.loss, CNN_RESULTS_SAVE_PATH, "batch_loss")
         save_to_numpy(batch_history.val_loss, CNN_RESULTS_SAVE_PATH, "batch_val_loss")
         save_to_numpy(batch_history.accuracy, CNN_RESULTS_SAVE_PATH, "batch_accuracy")
@@ -1076,7 +1071,7 @@ def main():
         # Show the confusion matrix.
         cm = metrics.confusion_matrix(np.argmax(lbl_mtr_test, axis=1), np.argmax(lbl_mtr_predict, axis=1))
         fig, px = plt.subplots(figsize=(12, 12))
-        px.matshow(cm, cmap=plt.cm.YlOrRd, alpha=0.5)
+        px.matshow(cm, cmap=plt.cm.plasma, alpha=1.0)
         plt.xlabel('Predictions', fontsize=20)
         plt.ylabel('Actuals', fontsize=20)
         plt.title('Confusion Matrix', fontsize=32)
@@ -1087,11 +1082,6 @@ def main():
                                             np.argmax(lbl_mtr_predict, axis=1),
                                             labels=labels,
                                             target_names=categories[:, 1]))
-
-        y_prediction = np.argmax(lbl_mtr_predict, axis=-1)
-
-        fpr_roc, tpr_roc, thresholds_roc = metrics.roc_curve(lbl_mtr_test, y_prediction)
-        roc_auc = metrics.auc(fpr_roc, tpr_roc)
 
     finally:
         logging.info("Closed MySQL %s database connection." % SQL_DENSE_TEST)

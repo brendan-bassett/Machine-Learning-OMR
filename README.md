@@ -9,7 +9,7 @@ Drastically extended and revised August 8, 2022.
 
 ## Libraries Used
 
-MySQL, NumPy, Scikit-learn, Tensorflow, Keras, MatPlotLib, OpenCV, Logging
+MySQL, NumPy, Scikit-learn, Tensorflow, Matplotlib, OpenCV, Logging
 
 ## Results
 
