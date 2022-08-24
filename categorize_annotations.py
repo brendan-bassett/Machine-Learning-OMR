@@ -61,6 +61,7 @@ from sklearn import preprocessing
 
 ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
 DS2_DENSE_SAVE_PATH = os.path.join("F://OMR_Datasets/DS2_Transformed")
+CNN_RESULTS_SAVE_PATH = os.path.join("F://OMR_Datasets/CNN_Results")
 
 SQL_DENSE = 'ds2_dense'
 SQL_DENSE_TEST = 'ds2_dense_test'
@@ -87,9 +88,9 @@ BATCH_SIZE = 256                        # For both the test and train dataset. T
 NUM_BATCHFILES_TRAIN = 2674             # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
 NUM_BATCHFILES_TEST = 213               # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
 
-EPOCH_SIZE = 1024       # The number of batches in a single "epoch" of the training dataset
+EPOCH_SIZE = NUM_BATCHFILES_TRAIN       # The number of batches in a single "epoch" of the training dataset
 VAL_SIZE = 1                            # The number of batches in the validation phase after each training batch
-TEST_SIZE = 64         # The number of batches in the final test phase after training is complete
+TEST_SIZE = NUM_BATCHFILES_TEST         # The number of batches in the final test phase after training is complete
 EPOCHS = 1
 
 
@@ -273,7 +274,7 @@ def cnn(num_labels: int):
         The keras callback object for per batch perfomance of the model.
     lbl_mtr_test
         The multibatch test label (category) data. As preprocessed label matrices.
-    label_pred
+    lbl_mtr_predict
         The multibatch predicted label (category) data for the test batch. As label matrices.
     """
 
@@ -307,16 +308,14 @@ def cnn(num_labels: int):
     test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
     imgs_test = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
     lbl_mtr_test = np.zeros((0, num_labels))
-    for batch_counter in range(0, VAL_SIZE):
+    for batch_counter in range(0, TEST_SIZE):
         imgs_batch, lbl_mtr_batch = test_gen.__getitem__(batch_counter)
         imgs_test = np.concatenate((imgs_test, imgs_batch))
         lbl_mtr_test = np.concatenate((lbl_mtr_test, lbl_mtr_batch))
 
-    label_test = np.argmax(lbl_mtr_test, axis=1)
-    label_pred = model.predict(imgs_test)
-    label_pred = np.argmax(label_pred, axis=1)
+    lbl_mtr_predict = model.predict(imgs_test)
 
-    return history, batch_history, label_test, label_pred
+    return history, batch_history, lbl_mtr_test, lbl_mtr_predict
 
 
 def extract_from_row(row: dict, calc_meta: bool = False):
@@ -1041,7 +1040,22 @@ def main():
 
         logging.info(" * Running CNN Categorization Model...\n")
 
-        history, batch_history, labels_test, label_predict = cnn(len(labels))
+        history, batch_history, lbl_mtr_test, lbl_mtr_predict = cnn(len(labels))
+
+        logging.info(" * Saving results...\n")
+
+        save_to_numpy(history.loss, CNN_RESULTS_SAVE_PATH, "batch_loss")
+        save_to_numpy(history.val_loss, CNN_RESULTS_SAVE_PATH, "batch_val_loss")
+        save_to_numpy(history.accuracy, CNN_RESULTS_SAVE_PATH, "batch_accuracy")
+        save_to_numpy(history.val_acc, CNN_RESULTS_SAVE_PATH, "batch_val_acc")
+
+        save_to_numpy(batch_history.loss, CNN_RESULTS_SAVE_PATH, "batch_loss")
+        save_to_numpy(batch_history.val_loss, CNN_RESULTS_SAVE_PATH, "batch_val_loss")
+        save_to_numpy(batch_history.accuracy, CNN_RESULTS_SAVE_PATH, "batch_accuracy")
+        save_to_numpy(batch_history.val_acc, CNN_RESULTS_SAVE_PATH, "batch_val_acc")
+
+        save_to_numpy(lbl_mtr_test, CNN_RESULTS_SAVE_PATH, "lbl_mtr_test")
+        save_to_numpy(lbl_mtr_predict, CNN_RESULTS_SAVE_PATH, "lbl_mtr_predict")
 
         logging.info(" * Producing Results and Analysis...")
 
@@ -1049,10 +1063,10 @@ def main():
         num_batches = len(batch_history.loss)
         plt.figure()
         plt.style.use("ggplot")
-        plt.plot(np.arange(0, num_batches), batch_history.loss, label="Training Loss")
-        plt.plot(np.arange(0, num_batches), batch_history.val_loss, label="Testing Loss")
-        plt.plot(np.arange(0, num_batches), batch_history.accuracy, label="Training Accuracy")
-        plt.plot(np.arange(0, num_batches), batch_history.val_acc, label="Testing Accuracy")
+        plt.plot(np.arange(0, num_batches), batch_history.loss, label="Training Loss", linewidth=0.5)
+        plt.plot(np.arange(0, num_batches), batch_history.val_loss, label="Testing Loss", linewidth=0.5)
+        plt.plot(np.arange(0, num_batches), batch_history.accuracy, label="Training Accuracy", linewidth=0.5)
+        plt.plot(np.arange(0, num_batches), batch_history.val_acc, label="Testing Accuracy", linewidth=0.5)
         plt.title("CNN: Training and Testing Loss & Accuracy")
         plt.xlabel("Batch #")
         plt.ylabel("Loss/Accuracy")
@@ -1060,7 +1074,7 @@ def main():
         plt.show()
 
         # Show the confusion matrix.
-        cm = metrics.confusion_matrix(labels_test, label_predict)
+        cm = metrics.confusion_matrix(np.argmax(lbl_mtr_test, axis=1), np.argmax(lbl_mtr_predict, axis=1))
         fig, px = plt.subplots(figsize=(12, 12))
         px.matshow(cm, cmap=plt.cm.YlOrRd, alpha=0.5)
         plt.xlabel('Predictions', fontsize=20)
@@ -1068,11 +1082,16 @@ def main():
         plt.title('Confusion Matrix', fontsize=32)
         plt.show()
 
-        # Show the classification report.
-        print(metrics.classification_report(labels_test,
-                                            label_predict,
+        # Show the precision, recall, f1-score, and support for each category.
+        print(metrics.classification_report(np.argmax(lbl_mtr_test, axis=1),
+                                            np.argmax(lbl_mtr_predict, axis=1),
                                             labels=labels,
                                             target_names=categories[:, 1]))
+
+        y_prediction = np.argmax(lbl_mtr_predict, axis=-1)
+
+        fpr_roc, tpr_roc, thresholds_roc = metrics.roc_curve(lbl_mtr_test, y_prediction)
+        roc_auc = metrics.auc(fpr_roc, tpr_roc)
 
     finally:
         logging.info("Closed MySQL %s database connection." % SQL_DENSE_TEST)
