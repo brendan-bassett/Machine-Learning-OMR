@@ -155,7 +155,7 @@ class BatchCallback(Callback):
         self.accuracy.append(logs.get('accuracy'))
         self.loss.append(logs.get('loss'))
 
-        # Evaluate after every so many batches
+        # Evaluate after every so many batches (BATCH_EVAL_FREQ).
         if self.batch_number % BATCH_EVAL_FREQ == 0:
             val_loss_batch, accuracy_batch = self.model.evaluate(self.data_generator, steps=VAL_SIZE, verbose=0)
             self.val_loss.append(val_loss_batch)
