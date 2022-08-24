@@ -95,7 +95,7 @@ on, and seek to categorize them.
 
 ## More Results
 
-| ***category*** | **precision** | **recall** | **f1-score** | **support** | 
+| ***Category*** | **Precision** | **Recall** | **F1-Score** | **Support** | 
 | --: | ---------: | ------: | --------: | -------: |
 | *brace* | 1.00 | 1.00 | 1.00 | 160 |
 | *ledgerLine* | 1.00 | 0.76 | 0.86 | 5893 |
@@ -233,7 +233,7 @@ on, and seek to categorize them.
 | *tupletBracket* | 0.78 | 0.93 | 0.85 | 15 |
 | *staff* | 1.00 | 0.99 | 0.99 | 845 |
 | *ottavaBracket* | 0.75 | 1.00 | 0.86 | 3 |
-
+| | | | | |
 | ***micro avg*** | 0.78 | 0.78 | 0.78 | 54528 |
 | ***macro avg*** | 0.50 | 0.46 | 0.46 | 54528 |
 | ***weighted avg*** | 0.83 | 0.78 | 0.77 | 54528 |
