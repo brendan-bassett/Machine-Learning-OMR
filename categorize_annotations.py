@@ -91,7 +91,8 @@ NUM_BATCHFILES_TEST = 213           # 54,746 loadable annotations in the test db
 EPOCH_SIZE = NUM_BATCHFILES_TRAIN       # The number of batches in a single "epoch" of the training dataset
 VAL_SIZE = 1                            # The number of batches in the validation phase after each training batch
 TEST_SIZE = NUM_BATCHFILES_TEST         # The number of batches in the final test phase after training is complete
-EPOCHS = 3
+EPOCHS = 1                              # The number of times to run through the training dataset
+BATCH_EVAL_FREQ = 4                     # After this many batches, evaluate the model with a test batch.
 
 
 # ============== CLASSES ===========================================================================================
@@ -134,6 +135,8 @@ class BatchCallback(Callback):
 
         self.data_generator = data_generator
 
+        self.batch_number = 0
+
         self.accuracy = []
         self.loss = []
         self.val_loss = []
@@ -152,10 +155,14 @@ class BatchCallback(Callback):
         self.accuracy.append(logs.get('accuracy'))
         self.loss.append(logs.get('loss'))
 
-        val_loss_batch, accuracy_batch = self.model.evaluate(self.data_generator, steps=VAL_SIZE, verbose=0)
+        # Evaluate after every so many batches
+        if self.batch_number % BATCH_EVAL_FREQ == 0:
+            val_loss_batch, accuracy_batch = self.model.evaluate(self.data_generator, steps=VAL_SIZE, verbose=0)
+            self.val_loss.append(val_loss_batch)
+            self.val_acc.append(accuracy_batch)
 
-        self.val_loss.append(val_loss_batch)
-        self.val_acc.append(accuracy_batch)
+        self.batch_number += 1
+
 
 
 class DataGeneratorNumpy(tf.keras.utils.Sequence):

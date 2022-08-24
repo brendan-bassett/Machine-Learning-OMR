@@ -13,12 +13,19 @@ MySQL, NumPy, Scikit-learn, Tensorflow, Matplotlib, OpenCV, Logging
 
 ## Results
 
-loss: 1.1498 - accuracy: 0.6985 - val_loss: 0.9491 - val_accuracy: 0.7137
+Training size 2674 batches of 256 annotations each.
+Test size 213 batches of 256 annotations each.
 
-<img alt="CNN Train vs Test Loss & Accuracy" width="800" height="auto" src="https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/plots/TrainTest_LossAccuracy.png"/>
+Epoch 1/2
+2674/2674 9900s 4s/step - loss: 0.6532 - accuracy: 0.7812 - val_loss: 0.6786 - val_accuracy: 0.7825
+Epoch 2/2
+2674/2674 27223s 10s/step - loss: 0.6580 - accuracy: 0.7715 - val_loss: 0.6600 - val_accuracy: 0.7841
 
-Final results after 256 batches of 256 annotations each in Training batch (1/10 epoch).
-Test size 20 batches of 256 annotations each.
+<img alt="CNN Train vs Test Loss & Accuracy" width="1200" height="auto" 
+src="https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/plots/TrainTest_LossAccuracy.png"/>
+
+<img alt="Classification Confusion Matrix" width="1200" height="auto" 
+src="https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/plots/ConfusionMatrix.png"/>
 
 ## Dataset
 
