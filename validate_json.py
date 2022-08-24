@@ -13,7 +13,7 @@ ROOT_PATH = os.path.realpath(os.path.dirname(__file__))
 # ============== FUNCTIONS =========================================================================================
 
 def get_schema():
-    with open('ds2_dense/ds2_schema.json', 'r') as file:
+    with open('ds2_schema.json', 'r') as file:
         schema = json.load(file)
     return schema
 
