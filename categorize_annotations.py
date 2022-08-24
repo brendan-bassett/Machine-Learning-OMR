@@ -83,13 +83,13 @@ ANNOTATION_SET = 'deepscores'  # Annotation category set. Can be 'deepscores' or
 STD_IMG_SHAPE = (25, 25)  # STD_IMG_SHAPE[0] = width      STD_IMG_SHAPE[1] = height
 IMG_FLOAT_TYPE = np.float16
 
-NUM_BATCHFILES_TRAIN = 2674      # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
-NUM_BATCHFILES_TEST = 213        # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
-
 BATCH_SIZE = 256                        # For both the test and train dataset. They must match.
-EPOCH_SIZE = 16       # The number of batches in a single "epoch" of the training dataset
+NUM_BATCHFILES_TRAIN = 2674             # 684,784 loadable annotations in the train db.  / 256  = 2,674.94 Batches per epoch
+NUM_BATCHFILES_TEST = 213               # 54,746 loadable annotations in the test db.    / 256  = 213.85 Batches
+
+EPOCH_SIZE = 1024       # The number of batches in a single "epoch" of the training dataset
 VAL_SIZE = 1                            # The number of batches in the validation phase after each training batch
-TEST_SIZE = 8         # The number of batches in the final test phase after training is complete
+TEST_SIZE = 64         # The number of batches in the final test phase after training is complete
 EPOCHS = 1
 
 
@@ -151,7 +151,7 @@ class BatchCallback(Callback):
         self.accuracy.append(logs.get('accuracy'))
         self.loss.append(logs.get('loss'))
 
-        val_loss_batch, accuracy_batch = self.model.evaluate(self.data_generator, steps=VAL_SIZE)
+        val_loss_batch, accuracy_batch = self.model.evaluate(self.data_generator, steps=VAL_SIZE, verbose=0)
 
         self.val_loss.append(val_loss_batch)
         self.val_acc.append(accuracy_batch)
@@ -247,7 +247,6 @@ class DataGeneratorNumpy(tf.keras.utils.Sequence):
         """ Shuffles the batch numbers at the creation of the generator and after each epoch.
         """
 
-        logging.info("   Epoch %d complete." % self.epoch_counter)
         self.batch_counter = 0
         self.epoch_counter += 1
         np.random.shuffle(self.batch_numbers)
@@ -272,7 +271,7 @@ def cnn(num_labels: int):
         The keras callback object for overall perfomance of the model.
     Callback
         The keras callback object for per batch perfomance of the model.
-    lbl_mtr_val
+    lbl_mtr_test
         The multibatch test label (category) data. As preprocessed label matrices.
     label_pred
         The multibatch predicted label (category) data for the test batch. As label matrices.
@@ -292,31 +291,32 @@ def cnn(num_labels: int):
 
     logging.info("Training model...\n")
     train_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TRAIN), num_labels, NUM_BATCHFILES_TRAIN)
-    test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
-
-    # Load the set of data for validation at the end of each batch.
-    imgs_val = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
-    lbl_mtr_val = np.zeros((0, num_labels))
-    for batch_counter in range(0, VAL_SIZE):
-        imgs_batch, lbl_mtr_batch = test_gen.__getitem__(batch_counter)
-        imgs_val = np.concatenate((imgs_val, imgs_batch))
-        lbl_mtr_val = np.concatenate((lbl_mtr_val, lbl_mtr_batch))
 
     val_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
-    test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
 
     batch_history = BatchCallback(val_gen)
     sgd = tf.keras.optimizers.SGD(learning_rate=0.01, decay=1e-6, momentum=0.9, nesterov=True)
     model.compile(loss="categorical_crossentropy", optimizer=sgd, metrics=["accuracy"])
     history = model.fit(train_gen, callbacks=[batch_history], epochs=EPOCHS, steps_per_epoch=EPOCH_SIZE,
-                        use_multiprocessing=True, validation_data=test_gen, validation_steps=TEST_SIZE)
+                        use_multiprocessing=True, validation_data=val_gen, validation_steps=TEST_SIZE)
 
     # Use the model to make some predictions.
     logging.info("Using model to make test predictions...\n")
 
-    label_pred = model.predict(imgs_val)
+    # Load the set of data for testing after the model is fitted.
+    test_gen = DataGeneratorNumpy(get_np_save_path(SQL_DENSE_TEST), num_labels, NUM_BATCHFILES_TEST)
+    imgs_test = np.zeros((0, STD_IMG_SHAPE[0], STD_IMG_SHAPE[1], 1))
+    lbl_mtr_test = np.zeros((0, num_labels))
+    for batch_counter in range(0, VAL_SIZE):
+        imgs_batch, lbl_mtr_batch = test_gen.__getitem__(batch_counter)
+        imgs_test = np.concatenate((imgs_test, imgs_batch))
+        lbl_mtr_test = np.concatenate((lbl_mtr_test, lbl_mtr_batch))
 
-    return history, batch_history, lbl_mtr_val, label_pred
+    label_test = np.argmax(lbl_mtr_test, axis=1)
+    label_pred = model.predict(imgs_test)
+    label_pred = np.argmax(label_pred, axis=1)
+
+    return history, batch_history, label_test, label_pred
 
 
 def extract_from_row(row: dict, calc_meta: bool = False):
@@ -1014,14 +1014,11 @@ def main():
     try:
         test_connection = mysql.connector.connect(user='root', password='HelloPassword0!', host='localhost',
                                                   db=SQL_DENSE_TEST, buffered=True)
-        test_cursor = test_connection.cursor()
-
         train_connection = mysql.connector.connect(user='root', password='HelloPassword0!', host='localhost',
                                                    db=SQL_DENSE_TRAIN, buffered=True)
-        train_cursor = train_connection.cursor()
 
         # logging.info(" ** Preprocessing Data...")
-        # preprocess_data(test_connection, test_cursor, train_connection, train_cursor)
+        # preprocess_data(test_connection, test_connection.cursor(), train_connection, train_connection.cursor())
 
         # Determine the path to the folder for saved numpy files.
         path = get_np_save_path(SQL_DENSE_TEST)
@@ -1062,18 +1059,20 @@ def main():
         plt.legend()
         plt.show()
 
-        # # Show the confusion matrix.
-        # plt.figure()
-        # skplt.metrics.plot_confusion_matrix(labels_test.argmax(axis=1), label_predict.argmax(axis=1),
-        #                                     title="FINAL RESULTS CONFUSION MATRIX", cmap="Reds")
-        # plt.yticks(label_encoder.fit_transform(label_encoder.classes_), categories[:, 1])
-        # plt.show()
-        #
-        # # Show the classification report.
-        # print(metrics.classification_report(labels_test.argmax(axis=1),
-        #                                     label_predict.argmax(axis=1),
-        #                                     labels=categories[:, 0],
-        #                                     target_names=categories[:, 1]))
+        # Show the confusion matrix.
+        cm = metrics.confusion_matrix(labels_test, label_predict)
+        fig, px = plt.subplots(figsize=(12, 12))
+        px.matshow(cm, cmap=plt.cm.YlOrRd, alpha=0.5)
+        plt.xlabel('Predictions', fontsize=20)
+        plt.ylabel('Actuals', fontsize=20)
+        plt.title('Confusion Matrix', fontsize=32)
+        plt.show()
+
+        # Show the classification report.
+        print(metrics.classification_report(labels_test,
+                                            label_predict,
+                                            labels=labels,
+                                            target_names=categories[:, 1]))
 
     finally:
         logging.info("Closed MySQL %s database connection." % SQL_DENSE_TEST)

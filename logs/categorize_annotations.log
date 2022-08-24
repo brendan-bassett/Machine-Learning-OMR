@@ -60160,3 +60160,478 @@ Using model to make test predictions...
  * Producing Results and Analysis...
 Closed MySQL ds2_dense_test database connection.
 Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 9 complete.
+   Epoch 10 complete.
+   Epoch 11 complete.
+   Epoch 12 complete.
+   Epoch 13 complete.
+   Epoch 14 complete.
+   Epoch 15 complete.
+   Epoch 0 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 9 complete.
+   Epoch 10 complete.
+   Epoch 11 complete.
+   Epoch 12 complete.
+   Epoch 13 complete.
+   Epoch 14 complete.
+   Epoch 15 complete.
+   Epoch 0 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 9 complete.
+   Epoch 10 complete.
+   Epoch 11 complete.
+   Epoch 12 complete.
+   Epoch 13 complete.
+   Epoch 14 complete.
+   Epoch 15 complete.
+   Epoch 0 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 9 complete.
+   Epoch 10 complete.
+   Epoch 11 complete.
+   Epoch 12 complete.
+   Epoch 13 complete.
+   Epoch 14 complete.
+   Epoch 15 complete.
+   Epoch 16 complete.
+   Epoch 17 complete.
+   Epoch 18 complete.
+   Epoch 19 complete.
+   Epoch 20 complete.
+   Epoch 21 complete.
+   Epoch 22 complete.
+   Epoch 23 complete.
+   Epoch 24 complete.
+   Epoch 25 complete.
+   Epoch 26 complete.
+   Epoch 27 complete.
+   Epoch 28 complete.
+   Epoch 29 complete.
+   Epoch 30 complete.
+   Epoch 31 complete.
+   Epoch 32 complete.
+   Epoch 33 complete.
+   Epoch 34 complete.
+   Epoch 35 complete.
+   Epoch 36 complete.
+   Epoch 37 complete.
+   Epoch 38 complete.
+   Epoch 39 complete.
+   Epoch 40 complete.
+   Epoch 41 complete.
+   Epoch 42 complete.
+   Epoch 43 complete.
+   Epoch 44 complete.
+   Epoch 45 complete.
+   Epoch 46 complete.
+   Epoch 47 complete.
+   Epoch 48 complete.
+   Epoch 49 complete.
+   Epoch 50 complete.
+   Epoch 51 complete.
+   Epoch 52 complete.
+   Epoch 53 complete.
+   Epoch 54 complete.
+   Epoch 55 complete.
+   Epoch 56 complete.
+   Epoch 57 complete.
+   Epoch 58 complete.
+   Epoch 59 complete.
+   Epoch 60 complete.
+   Epoch 61 complete.
+   Epoch 62 complete.
+   Epoch 63 complete.
+   Epoch 64 complete.
+   Epoch 0 complete.
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+   Epoch 0 complete.
+   Epoch 1 complete.
+   Epoch 2 complete.
+   Epoch 3 complete.
+   Epoch 4 complete.
+   Epoch 5 complete.
+   Epoch 6 complete.
+   Epoch 7 complete.
+   Epoch 8 complete.
+   Epoch 9 complete.
+   Epoch 10 complete.
+   Epoch 11 complete.
+   Epoch 12 complete.
+   Epoch 13 complete.
+   Epoch 14 complete.
+   Epoch 15 complete.
+   Epoch 16 complete.
+   Epoch 17 complete.
+   Epoch 18 complete.
+   Epoch 19 complete.
+   Epoch 20 complete.
+   Epoch 21 complete.
+   Epoch 22 complete.
+   Epoch 23 complete.
+   Epoch 24 complete.
+   Epoch 25 complete.
+   Epoch 26 complete.
+   Epoch 27 complete.
+   Epoch 28 complete.
+   Epoch 29 complete.
+   Epoch 30 complete.
+   Epoch 31 complete.
+   Epoch 32 complete.
+   Epoch 33 complete.
+   Epoch 34 complete.
+   Epoch 35 complete.
+   Epoch 36 complete.
+   Epoch 37 complete.
+ ** Initializing MySQL DB Connection...
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ ** Loading Numpy Files From:   F://OMR_Datasets/DS2_Transformed/numpy_save/dense_test_deepscores/
+ * Running CNN Categorization Model...
+
+Building neural network...
+
+Training model...
+
+Using model to make test predictions...
+
+ * Producing Results and Analysis...
+Closed MySQL ds2_dense_test database connection.
+Closed MySQL ds2_dense_train database connection.
