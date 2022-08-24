@@ -23,6 +23,11 @@ Epoch 1/2
 Epoch 2/2
 2674/2674 27223s 10s/step - loss: 0.6580 - accuracy: 0.7715 - val_loss: 0.6600 - val_accuracy: 0.7841
 
+<img alt="CNN Train vs Test Loss & Accuracy" width="1200" height="auto" 
+src="https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/plots/TrainTest_LossAccuracy.png"/>
+
+<img alt="Classification Confusion Matrix" width="1200" height="auto" 
+src="https://github.com/brendan-bassett/Machine-Learning-OMR/blob/master/plots/ConfusionMatrix.png"/>
 
 (Precision, Recall, f1-score, and support for each category and in averages listed at the bottom of this README)
 
