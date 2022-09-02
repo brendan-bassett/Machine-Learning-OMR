@@ -402,7 +402,7 @@ def extract_from_row(row: dict, calc_meta: bool = False):
     img_path = DS2_DENSE_SAVE_PATH + "/annotations/" + str(id) + ".jpg"
     if not os.path.exists(img_path):
         logging.error("The annotation image does not exist! Skipped loading this image.   img_path:   %s" % img_path)
-
+    DS2_DENSE_SAVE_PATH
     try:
         img = cv.imread(img_path, cv.IMREAD_GRAYSCALE)
     except:
